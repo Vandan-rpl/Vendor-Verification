@@ -22,3 +22,5 @@ coverage/
 # Optional database files (if using SQLite)
 *.sqlite
 *.db
+
+Scripts/generateHash.js
