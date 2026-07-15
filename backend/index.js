@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const authRoutes = require("./Routes/authRoutes");
+const uploadRoutes = require("./Routes/uploadRoutes");
+const errorHandler = require("./Middlewares/errorHandler");
 
 const { poolConnect } = require("./Config/db");
 const cookieParser = require("cookie-parser");
@@ -9,9 +11,12 @@ const cookieParser = require("cookie-parser");
 const app = express();
 app.use(cors({origin: "http://localhost:5173", credentials:true}));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 app.use("/api", authRoutes);
+app.use("/api",uploadRoutes);
+app.use(errorHandler);
 
 const PORT = process.env.LOCALHOST_PORT || 5000;
 
