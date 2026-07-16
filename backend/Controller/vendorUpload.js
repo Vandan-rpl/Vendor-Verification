@@ -6,10 +6,12 @@ const uploadVendorExcel = async (req, res) => {
   }
 
   try {
+    const uploadedBy = req.user?.userId ?? req.user?.id ?? req.user?.user_id ?? null;
+
     const result = await processVendorExcel({
       fileBuffer: req.file.buffer,
       fileName: req.file.originalname,
-      uploadedBy: req.user?.userId || null, // set by auth middleware, if present
+      uploadedBy,
     });
 
     return res.status(200).json({

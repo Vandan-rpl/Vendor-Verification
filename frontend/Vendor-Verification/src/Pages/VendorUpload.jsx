@@ -1,13 +1,61 @@
 import { useState } from "react";
 import { useAuth } from "../Context/authContext";
+import { uploadVendorExcel, startVerificationEmails } from "../Services/uploadService";
+import toast from "react-hot-toast";
 
 function VendorUpload() {
   const [selectedFile, setSelectedFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const { isAuthenticated } = useAuth();
 
   const handleFileChange = (event) => {
-    const file = event.target.files?.[0] ?? null;
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+
     setSelectedFile(file);
+    toast.success(`Selected ${file.name}`);
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      toast.error("Please select a file.");
+      return;
+    }
+
+    try {
+      setUploading(true);
+
+      const response = await uploadVendorExcel(selectedFile);
+
+      toast.success(response.message || "File uploaded successfully");
+      console.log(response);
+      setSelectedFile(null);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to upload file.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleStartVerification = async () => {
+    try {
+      setVerifying(true);
+      const response = await startVerificationEmails();
+      toast.success(response.message || "Verification process started.");
+    } catch (error) {
+      toast.error(
+        error.response?.data?.error ||
+          error.response?.data?.message ||
+          "Failed to start verification."
+      );
+    } finally {
+      setVerifying(false);
+    }
   };
 
   return (
@@ -34,7 +82,7 @@ function VendorUpload() {
 
         <label
           htmlFor="vendor-excel"
-          className="flex flex-col items-center justify-center w-full min-h-[180px] px-6 py-8 border-2 border-dashed border-slate-200 hover:border-blue-500 bg-slate-50/50 hover:bg-blue-50/20 rounded-xl cursor-pointer transition-all duration-200 group text-center"
+          className="flex flex-col items-center justify-center w-full min-h-45 px-6 py-8 border-2 border-dashed border-slate-200 hover:border-blue-500 bg-slate-50/50 hover:bg-blue-50/20 rounded-xl cursor-pointer transition-all duration-200 group text-center"
         >
           {/* Upload Icon */}
           <div className="p-3 bg-white border border-slate-100 rounded-xl shadow-sm text-slate-400 group-hover:text-blue-500 group-hover:border-blue-200 transition-colors duration-200 mb-3">
@@ -49,7 +97,7 @@ function VendorUpload() {
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"
+                d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5  4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"
               />
             </svg>
           </div>
@@ -91,6 +139,24 @@ function VendorUpload() {
           </div>
         </div>
       )}
+
+      <div className="mt-6 flex justify-end gap-3">
+        <button
+          onClick={handleStartVerification}
+          disabled={verifying}
+          className="px-6 py-2 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          {verifying ? "Starting..." : "Start Verification"}
+        </button>
+
+        <button
+          onClick={handleUpload}
+          disabled={!selectedFile || uploading}
+          className="px-6 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          {uploading ? "Uploading..." : "Upload"}
+        </button>
+      </div>
     </div>
   );
 }
