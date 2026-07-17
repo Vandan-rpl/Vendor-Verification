@@ -11,11 +11,20 @@ async function getVerificationDetails(req, res) {
       .input('Token', sql.NVarChar(255), token)
       .query(`
         SELECT vr.RequestId, vr.Status, vr.ExpiresAt,
-               v.Id AS VendorId, v.Name, v.MobileNumber, v.Address,
+               v.VendorId AS VendorId,
+               v.VendorName AS Name,
+               v.MobileNumber AS MobileNumber,
+               CONCAT(
+                 v.AddressLine1,
+                 CASE WHEN v.AddressLine2 IS NOT NULL AND v.AddressLine2 <> '' THEN CONCAT(', ', v.AddressLine2) ELSE '' END,
+                 CASE WHEN v.City IS NOT NULL AND v.City <> '' THEN CONCAT(', ', v.City) ELSE '' END,
+                 CASE WHEN v.State IS NOT NULL AND v.State <> '' THEN CONCAT(', ', v.State) ELSE '' END,
+                 CASE WHEN v.Pincode IS NOT NULL AND v.Pincode <> '' THEN CONCAT(' - ', v.Pincode) ELSE '' END
+               ) AS Address,
                ve.Email
         FROM VerificationRequests vr
         INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
-        INNER JOIN Vendor v ON v.Id = ve.VendorId
+        INNER JOIN Vendor v ON v.VendorId = ve.VendorId
         WHERE vr.Token = @Token
       `);
 

@@ -3,22 +3,30 @@ const XLSX = require("xlsx");
 /**
  * Expected Excel columns (case-insensitive, spaces ignored), matching the
  * Vendor table: VendorCode, VendorName, AddressLine1, AddressLine2, City,
- * State, Pincode, plus Email1, Email2, Email3, ... (any column containing "email")
+ * State, Pincode, MobileNumber, plus Email1, Email2, Email3, ... (any column
+ * containing "email")
  *
  * Adjust COLUMN_MAP below if your actual Excel headers differ.
+ * NOTE: keys here must be the NORMALIZED form (lowercase, no spaces/symbols)
+ * since normalizeHeader() is always applied before lookup.
  */
 const COLUMN_MAP = {
   vendorcode: "VendorCode",
   code: "VendorCode",
   vendorname: "VendorName",
   addressline1: "AddressLine1",
-  address1: "AddressLine1",
   addressline2: "AddressLine2",
-  address2: "AddressLine2",
   city: "City",
   state: "State",
   pincode: "Pincode",
+  phonenumber: "MobileNumber",   // ✅ fixed: was "PhoneNumber" (wrong case, never matched)
+  mobilenumber: "MobileNumber",
+  mobile: "MobileNumber",        // optional extra alias
+  contactnumber: "MobileNumber", // optional extra alias
 };
+
+// Fields in the Vendor table that are numeric (int) and need Number() coercion
+const NUMERIC_FIELDS = new Set(["VendorCode"]);
 
 const normalizeHeader = (header) =>
   String(header)
@@ -76,11 +84,22 @@ const mapRow = (rawRow) => {
       if (normalized.startsWith("vendorname")) mappedField = "VendorName";
       else if (normalized.startsWith("postcode") || normalized === "postcode" || normalized === "pincode" || normalized === "zip") mappedField = "Pincode";
       else if (normalized.startsWith("city")) mappedField = "City";
+      else if (normalized.startsWith("phone") || normalized.startsWith("mobile") || normalized.startsWith("contact")) mappedField = "MobileNumber";
     }
 
     if (mappedField) {
       // don't overwrite if we've already set this field from another header
-      if (!vendorFields[mappedField]) vendorFields[mappedField] = String(value).trim();
+      if (!vendorFields[mappedField]) {
+        const rawValue = String(value).trim();
+
+        if (NUMERIC_FIELDS.has(mappedField)) {
+          // strip any non-digit characters (spaces, dashes, +91 etc.) before parsing
+          const digitsOnly = rawValue.replace(/[^\d]/g, "");
+          vendorFields[mappedField] = digitsOnly ? Number(digitsOnly) : null;
+        } else {
+          vendorFields[mappedField] = rawValue;
+        }
+      }
     }
   }
 

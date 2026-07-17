@@ -1,48 +1,76 @@
-import { useState } from "react";
-import { useAuth } from "../Context/authContext";
-import { uploadVendorExcel, startVerificationEmails } from "../Services/uploadService";
+import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import {
+  startVerificationEmails,
+  getUploadedVendors,
+  uploadVendorExcel,
+} from "../Services/uploadService";
 
 function VendorUpload() {
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const { isAuthenticated } = useAuth();
+  const [previewVendors, setPreviewVendors] = useState([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
-  const handleFileChange = (event) => {
-    const file = event.target.files?.[0];
-
-    if (!file) {
-      setSelectedFile(null);
-      return;
+  const fetchPreviewVendors = async () => {
+    try {
+      setPreviewLoading(true);
+      const response = await getUploadedVendors();
+      setPreviewVendors(response?.vendors || []);
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || "Failed to fetch vendor records."
+      );
+      setPreviewVendors([]);
+    } finally {
+      setPreviewLoading(false);
     }
-
-    setSelectedFile(file);
-    toast.success(`Selected ${file.name}`);
   };
 
-  const handleUpload = async () => {
-    if (!selectedFile) {
-      toast.error("Please select a file.");
+  useEffect(() => {
+    fetchPreviewVendors();
+  }, []);
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const allowedExtensions = [".xlsx", ".xls", ".csv"];
+    const fileName = file.name.toLowerCase();
+    const isAllowed = allowedExtensions.some((ext) => fileName.endsWith(ext));
+
+    if (!isAllowed) {
+      toast.error("Please upload a valid Excel or CSV file.");
+      event.target.value = "";
       return;
     }
 
     try {
       setUploading(true);
-
-      const response = await uploadVendorExcel(selectedFile);
-
-      toast.success(response.message || "File uploaded successfully");
-      console.log(response);
-      setSelectedFile(null);
+      await uploadVendorExcel(file);
+      toast.success("Excel uploaded successfully.");
+      await fetchPreviewVendors();
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to upload file.");
+      toast.error(
+        error.response?.data?.message || "Failed to upload Excel file."
+      );
     } finally {
       setUploading(false);
+      event.target.value = "";
     }
   };
 
   const handleStartVerification = async () => {
+    if (previewVendors.length === 0) {
+      toast.error("No vendor records available to verify.");
+      return;
+    }
+
     try {
       setVerifying(true);
       const response = await startVerificationEmails();
@@ -59,103 +87,96 @@ function VendorUpload() {
   };
 
   return (
-    <div className="w-full max-w-xl mx-auto my-12 p-8 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-100/70">
-      {/* Header Context */}
+    <div className="w-full max-w-5xl mx-auto my-12 p-8 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-100/70">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
-          Upload Vendor Excel
+          Vendor Verification
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Select or drag an Excel file to quickly import your vendor data.
+          Existing vendor records are fetched from the database below. Start verification when you are ready.
         </p>
       </div>
 
-      {/* Hidden Native Input & Styled Dropzone Label */}
-      <div className="relative">
-        <input
-          id="vendor-excel"
-          type="file"
-          className="sr-only" // Completely hides native button safely for accessibility
-          accept=".xlsx,.xls,.csv"
-          onChange={handleFileChange}
-        />
-
-        <label
-          htmlFor="vendor-excel"
-          className="flex flex-col items-center justify-center w-full min-h-45 px-6 py-8 border-2 border-dashed border-slate-200 hover:border-blue-500 bg-slate-50/50 hover:bg-blue-50/20 rounded-xl cursor-pointer transition-all duration-200 group text-center"
-        >
-          {/* Upload Icon */}
-          <div className="p-3 bg-white border border-slate-100 rounded-xl shadow-sm text-slate-400 group-hover:text-blue-500 group-hover:border-blue-200 transition-colors duration-200 mb-3">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
-              stroke="currentColor"
-              className="w-6 h-6"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5  4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"
-              />
-            </svg>
+      <div className="mt-8 border border-slate-200 rounded-2xl p-5 bg-slate-50/50">
+        <div className="flex flex-col gap-4 rounded-xl border border-dashed border-sky-200 bg-white/80 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">
+              Upload Vendor Excel
+            </h2>
+            <p className="text-sm text-slate-500">
+              Import vendor records anytime, even if there are no existing rows in the database yet.
+            </p>
           </div>
 
-          <span className="text-sm font-semibold text-slate-700 group-hover:text-blue-600 transition-colors duration-200">
-            Click to upload or drag and drop
-          </span>
-          <span className="text-xs text-slate-400 mt-1">
-            Supported formats: .xlsx, .xls, .csv
-          </span>
-        </label>
-      </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handleUploadClick}
+              disabled={uploading}
+              className="px-6 py-2 rounded-lg bg-sky-600 text-white font-medium hover:bg-sky-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {uploading ? "Uploading..." : "Upload Excel"}
+            </button>
 
-      {/* Selected File Feedback Banner */}
-      {selectedFile && (
-        <div className="mt-5 flex items-center gap-3 p-3.5 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-800 animate-fadeIn">
-          {/* Success File Icon */}
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={2}
-            stroke="currentColor"
-            className="w-5 h-5 text-emerald-600 shrink-0"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleFileUpload}
             />
-          </svg>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-emerald-600 font-medium uppercase tracking-wider">
-              Selected File
-            </p>
-            <p className="text-sm font-semibold truncate text-slate-800">
-              {selectedFile.name}
-            </p>
+
+            <button
+              onClick={handleStartVerification}
+              disabled={verifying || previewVendors.length === 0}
+              className="px-6 py-2 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {verifying ? "Starting..." : "Start Verification"}
+            </button>
           </div>
         </div>
-      )}
 
-      <div className="mt-6 flex justify-end gap-3">
-        <button
-          onClick={handleStartVerification}
-          disabled={verifying}
-          className="px-6 py-2 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-        >
-          {verifying ? "Starting..." : "Start Verification"}
-        </button>
+        <div className="mt-5">
+          <h3 className="text-lg font-semibold text-slate-800">
+            Fetched Vendor Records
+          </h3>
+          <p className="text-sm text-slate-500">
+            Showing the vendor data already stored in the database.
+          </p>
+        </div>
 
-        <button
-          onClick={handleUpload}
-          disabled={!selectedFile || uploading}
-          className="px-6 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-        >
-          {uploading ? "Uploading..." : "Upload"}
-        </button>
+        {previewLoading ? (
+          <div className="mt-5 text-sm text-slate-500">Loading preview...</div>
+        ) : previewVendors.length > 0 ? (
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm text-left">
+              <thead className="bg-slate-100 text-slate-600">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Vendor</th>
+                  <th className="px-3 py-2 font-semibold">Code</th>
+                  <th className="px-3 py-2 font-semibold">City</th>
+                  <th className="px-3 py-2 font-semibold">State</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {previewVendors.map((vendor) => (
+                  <tr key={vendor.VendorId} className="hover:bg-slate-50">
+                    <td className="px-3 py-2 font-medium text-slate-700">
+                      {vendor.VendorName}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600">{vendor.VendorCode}</td>
+                    <td className="px-3 py-2 text-slate-600">{vendor.City || "-"}</td>
+                    <td className="px-3 py-2 text-slate-600">{vendor.State || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="mt-5 text-sm text-slate-500">
+            No vendor records were found in the database.
+          </div>
+        )}
       </div>
     </div>
   );

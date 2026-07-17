@@ -50,16 +50,17 @@ const insertVendor = async (transaction, batchId, vendorFields) => {
     .input("AddressLine2", sql.NVarChar, vendorFields.AddressLine2 || null)
     .input("City", sql.NVarChar, vendorFields.City || null)
     .input("State", sql.NVarChar, vendorFields.State || null)
+    .input("MobileNumber", sql.NVarChar(20), vendorFields.MobileNumber || null)
     .input("Pincode", sql.NVarChar, vendorFields.Pincode || null)
     .input("Status", sql.NVarChar, "pending")
     .query(`
       INSERT INTO Vendor (
-        BatchId, VendorCode, VendorName, AddressLine1, AddressLine2, City, State,
+        BatchId, VendorCode, VendorName, AddressLine1, AddressLine2, City, State, MobileNumber,
         Pincode, Status
       )
       OUTPUT INSERTED.VendorId
       VALUES (
-        @BatchId, @VendorCode, @VendorName, @AddressLine1, @AddressLine2, @City, @State,
+        @BatchId, @VendorCode, @VendorName, @AddressLine1, @AddressLine2, @City, @State, @MobileNumber,
         @Pincode, @Status
       )
     `);

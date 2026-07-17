@@ -8,7 +8,15 @@ const { parseExcelBuffer, mapRow } = require("./excelParserService");
  * Rolls back everything on unexpected failure.
  */
 const processVendorExcel = async ({ fileBuffer, fileName, uploadedBy }) => {
-  const rawRows = parseExcelBuffer(fileBuffer);
+  let rawRows = [];
+
+  try {
+    rawRows = parseExcelBuffer(fileBuffer);
+  } catch (parseErr) {
+    const err = new Error(`Unable to read Excel file: ${parseErr.message}`);
+    err.statusCode = 400;
+    throw err;
+  }
 
   if (!rawRows.length) {
     const err = new Error("Excel file is empty");
@@ -34,7 +42,17 @@ const processVendorExcel = async ({ fileBuffer, fileName, uploadedBy }) => {
 
     for (let i = 0; i < rawRows.length; i++) {
       const rowNumber = i + 2; // header row + 1-indexing
-      const { vendorFields, emails } = mapRow(rawRows[i]);
+      let mappedRow;
+
+      try {
+        mappedRow = mapRow(rawRows[i]);
+      } catch (mapErr) {
+        failedCount++;
+        failedRows.push({ row: rowNumber, reason: `Row mapping failed: ${mapErr.message}` });
+        continue;
+      }
+
+      const { vendorFields, emails } = mappedRow;
 
       if (!vendorFields.VendorName) {
         failedCount++;
@@ -47,13 +65,15 @@ const processVendorExcel = async ({ fileBuffer, fileName, uploadedBy }) => {
         failedRows.push({ row: rowNumber, reason: "Missing or invalid VendorCode" });
         continue;
       }
+
       vendorFields.VendorCode = Number(vendorFields.VendorCode);
 
       try {
         const vendorId = await vendorUploadModel.insertVendor(transaction, batchId, vendorFields);
 
-        for (const { email, emailType } of emails) {
-          await vendorUploadModel.insertVendorEmail(transaction, vendorId, email, emailType);
+        for (const { email } of emails) {
+          if (!email) continue;
+          await vendorUploadModel.insertVendorEmail(transaction, vendorId, email);
         }
 
         successCount++;

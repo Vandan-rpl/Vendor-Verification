@@ -1,4 +1,4 @@
-const vendorListModel = require("../models/vendorListModel");
+const vendorListModel = require("../Models/vendorListModel");
 
 const VALID_STATUSES = ["pending", "verified", "rejected"];
 

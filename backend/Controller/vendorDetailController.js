@@ -1,4 +1,4 @@
-const { getVendorVerificationDetail } = require("../services/vendorDetailService");
+const { getVendorVerificationDetail } = require("../Services/vendorDetailService");
 
 const getVendorDetail = async (req, res) => {
   const vendorId = parseInt(req.params.id, 10);
