@@ -6,16 +6,17 @@ const {
   confirmVerification,
   submitUpdate
 } = require('../Controller/verifyController');
-const { getResponses, getResponseChanges } = require('../Controller/responseController');
+const { getResponses, getResponseChanges, getSubmissions } = require('../Controller/responseController');
 
 // POST /api/verification/start
 router.post('/verification/start', startVerification);
 
-// IMPORTANT: these two must come BEFORE '/verification/:token' below —
-// otherwise Express treats the literal word "responses" as a :token value
-// and these routes would never be reached.
+// IMPORTANT: these must come BEFORE '/verification/:token' below —
+// otherwise Express treats the literal word "responses"/"submissions" as
+// a :token value and these routes would never be reached.
 router.get('/verification/responses', getResponses);
 router.get('/verification/responses/:requestId/changes', getResponseChanges);
+router.get('/verification/submissions', getSubmissions);
 
 // Vendor-facing token routes
 router.get('/verification/:token', getVerificationDetails);

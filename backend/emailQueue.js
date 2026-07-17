@@ -17,7 +17,7 @@ async function processQueue(items, sendFn, label = 'emails') {
     try {
       await sendFn(item);
     } catch (err) {
-      console.error(`[emailQueue] Failed to process item:`, err.message);
+      console.error(`[emailQueue] Failed to process item:`, err.message,err.status);
     }
 
     count++;

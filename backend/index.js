@@ -8,6 +8,9 @@ const dashboardRoutes = require("./Routes/dashboardRoutes");
 const verifyRoutes = require("./Routes/verifyRoutes");
 const errorHandler = require("./Middlewares/errorHandler");
 
+const dns = require("node:dns");
+
+dns.setDefaultResultOrder("ipv4first");
 
 const { poolConnect } = require("./Config/db");
 const cookieParser = require("cookie-parser");

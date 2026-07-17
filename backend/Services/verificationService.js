@@ -23,7 +23,7 @@ async function processNewVerifications() {
       AND NOT EXISTS (
         SELECT 1 FROM VerificationRequests vr
         WHERE vr.EmailId = ve.EmailId
-          AND vr.Status IN ('sent', 'opened', 'confirmed', 'updated')
+          AND vr.Status IN ('queued', 'sent', 'opened', 'confirmed', 'updated')
       )
   `);
 
@@ -35,34 +35,30 @@ async function processNewVerifications() {
 
   const queuedVendors = [];
 
-  // Step 1: create DB rows + flip Vendor.Status right away (fast, no delay).
-  // This is what actually prevents duplicate sends — happens before any
-  // email is dispatched.
+  // Step 1: create DB rows in a queued state first. The request only flips to
+  // 'sent' after the mail send succeeds; if the send fails, it stays 'queued'
+  // or is marked 'failed'. This prevents false-positive sent counts.
   for (const vendor of vendors) {
     const token = crypto.randomUUID();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + TOKEN_EXPIRY_DAYS);
 
-    await pool.request()
+    const insertResult = await pool.request()
       .input('EmailId', sql.Int, vendor.EmailId)
       .input('Token', sql.NVarChar(255), token)
       .input('ExpiresAt', sql.DateTime, expiresAt)
       .query(`
         INSERT INTO VerificationRequests (EmailId, Token, Status, SentAt, ExpiresAt)
-        VALUES (@EmailId, @Token, 'sent', GETDATE(), @ExpiresAt)
+        OUTPUT INSERTED.RequestId
+        VALUES (@EmailId, @Token, 'queued', NULL, @ExpiresAt)
       `);
 
-    await pool.request()
-      .input('VendorId', sql.Int, vendor.VendorId)
-      .query(`
-        UPDATE Vendor
-        SET Status = 'sent'
-        WHERE VendorId = @VendorId
-      `);
+    const requestId = insertResult.recordset[0]?.RequestId;
 
     queuedVendors.push({
       ...vendor,
       token,
+      requestId,
       link: `${BASE_URL}/verify/${token}`
     });
   }
@@ -73,8 +69,37 @@ async function processNewVerifications() {
   processQueue(
     queuedVendors,
     async (vendor) => {
-      await sendMail(vendor.Email, buildVerificationEmail(vendor.VendorName, vendor.link));
-      console.log(`Mail sent to ${vendor.Email}`);
+      try {
+        await sendMail(vendor.Email, buildVerificationEmail(vendor.VendorName, vendor.link));
+
+        await pool.request()
+          .input('RequestId', sql.Int, vendor.requestId)
+          .query(`
+            UPDATE VerificationRequests
+            SET Status = 'sent', SentAt = GETDATE()
+            WHERE RequestId = @RequestId AND Status = 'queued'
+          `);
+
+        await pool.request()
+          .input('VendorId', sql.Int, vendor.VendorId)
+          .query(`
+            UPDATE Vendor
+            SET Status = 'sent'
+            WHERE VendorId = @VendorId AND Status = 'pending'
+          `);
+
+        console.log(`Mail sent to ${vendor.Email}`);
+      } catch (err) {
+        await pool.request()
+          .input('RequestId', sql.Int, vendor.requestId)
+          .query(`
+            UPDATE VerificationRequests
+            SET Status = 'failed'
+            WHERE RequestId = @RequestId AND Status = 'queued'
+          `);
+
+        throw err;
+      }
     },
     'verification emails'
   ).catch((err) => console.error('[processNewVerifications] queue error:', err));

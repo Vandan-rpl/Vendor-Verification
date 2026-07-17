@@ -12,8 +12,8 @@ async function getResponses(req, res) {
     let query = `
       SELECT
         vr.RequestId,
-        v.Id AS VendorId,
-        v.Name AS VendorName,
+        v.VendorId,
+        v.VendorName,
         ve.Email,
         vr.Status,
         vr.SentAt,
@@ -22,7 +22,7 @@ async function getResponses(req, res) {
         vr.ReminderCount
       FROM VerificationRequests vr
       INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
-      INNER JOIN Vendor v ON v.Id = ve.VendorId
+      INNER JOIN Vendor v ON v.VendorId = ve.VendorId
       WHERE 1 = 1
     `;
 
@@ -32,7 +32,7 @@ async function getResponses(req, res) {
     }
 
     if (search) {
-      query += ` AND v.Name LIKE @Search`;
+      query += ` AND v.VendorName LIKE @Search`;
       request.input('Search', sql.NVarChar(200), `%${search}%`);
     }
 
@@ -59,10 +59,16 @@ async function getResponseChanges(req, res) {
     const vendorResult = await pool.request()
       .input('RequestId', sql.Int, requestId)
       .query(`
-        SELECT v.Name, v.MobileNumber, v.Address, ve.Email
+        SELECT v.VendorName, v.MobileNumber, CONCAT(
+          v.AddressLine1,
+          CASE WHEN v.AddressLine2 IS NOT NULL AND v.AddressLine2 <> '' THEN CONCAT(', ', v.AddressLine2) ELSE '' END,
+          CASE WHEN v.City IS NOT NULL AND v.City <> '' THEN CONCAT(', ', v.City) ELSE '' END,
+          CASE WHEN v.State IS NOT NULL AND v.State <> '' THEN CONCAT(', ', v.State) ELSE '' END,
+          CASE WHEN v.Pincode IS NOT NULL AND v.Pincode <> '' THEN CONCAT(' - ', v.Pincode) ELSE '' END
+        ) AS Address, ve.Email
         FROM VerificationRequests vr
         INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
-        INNER JOIN Vendor v ON v.Id = ve.VendorId
+        INNER JOIN Vendor v ON v.VendorId = ve.VendorId
         WHERE vr.RequestId = @RequestId
       `);
 
@@ -94,4 +100,33 @@ async function getResponseChanges(req, res) {
   }
 }
 
-module.exports = { getResponses, getResponseChanges };
+// GET /api/verification/submissions
+// Lists everything vendors have submitted via the update form (VendorVerificationResponse table)
+async function getSubmissions(req, res) {
+  try {
+    await poolConnect;
+
+    const result = await pool.request().query(`
+      SELECT
+        vvr.Id,
+        vvr.RequestId,
+        vvr.VendorId,
+        vvr.VendorName,
+        vvr.ContactNumber,
+        vvr.Email,
+        vvr.Address,
+        vvr.SubmittedAt,
+        vvr.ApprovalStatus
+      FROM VendorVerificationResponse vvr
+      ORDER BY vvr.SubmittedAt DESC
+    `);
+
+    return res.status(200).json({ data: result.recordset });
+
+  } catch (err) {
+    console.error('getSubmissions error:', err);
+    return res.status(500).json({ error: 'Failed to fetch submissions.' });
+  }
+}
+
+module.exports = { getResponses, getResponseChanges, getSubmissions };

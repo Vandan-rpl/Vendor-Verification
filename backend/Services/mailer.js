@@ -4,7 +4,8 @@ const nodemailer = require("nodemailer");
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT),
-  secure: process.env.SMTP_SECURE === "true", // true for 465, false for 587
+  family: 4,
+  secure: process.env.SMTP_SECURE === "false", // true for 465, false for 587
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
@@ -22,10 +23,10 @@ transporter.verify((error, success) => {
   console.log("=================================");
 
   if (error) {
-    console.error("❌ SMTP Verification Failed");
+    console.error("SMTP Verification Failed");
     console.error(error);
   } else {
-    console.log("✅ SMTP Server is ready to send emails");
+    console.log("SMTP Server is ready to send emails");
   }
 });
 

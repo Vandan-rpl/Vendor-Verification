@@ -1,5 +1,21 @@
 const { sql, pool, poolConnect } = require('../Config/db');
 
+async function saveVendorVerificationResponse({ requestId, vendorId, vendorName, contactNumber, email, address }) {
+  await pool.request()
+    .input('RequestId', sql.Int, requestId)
+    .input('VendorId', sql.Int, vendorId)
+    .input('VendorName', sql.NVarChar(200), vendorName)
+    .input('ContactNumber', sql.NVarChar(20), contactNumber)
+    .input('Email', sql.NVarChar(200), email)
+    .input('Address', sql.NVarChar(500), address)
+    .query(`
+      INSERT INTO VendorVerificationResponse
+        (RequestId, VendorId, VendorName, ContactNumber, Email, Address)
+      VALUES
+        (@RequestId, @VendorId, @VendorName, @ContactNumber, @Email, @Address)
+    `);
+}
+
 // GET /api/verify/:token
 // Loads vendor's current details for the confirm/edit page, and marks the link as opened
 async function getVerificationDetails(req, res) {
@@ -92,7 +108,21 @@ async function confirmVerification(req, res) {
 
     const check = await pool.request()
       .input('Token', sql.NVarChar(255), token)
-      .query(`SELECT Status, ExpiresAt FROM VerificationRequests WHERE Token = @Token`);
+      .query(`
+        SELECT vr.RequestId, vr.Status, vr.ExpiresAt,
+               ve.VendorId, v.VendorName, v.MobileNumber, ve.Email,
+               CONCAT(
+                 v.AddressLine1,
+                 CASE WHEN v.AddressLine2 IS NOT NULL AND v.AddressLine2 <> '' THEN CONCAT(', ', v.AddressLine2) ELSE '' END,
+                 CASE WHEN v.City IS NOT NULL AND v.City <> '' THEN CONCAT(', ', v.City) ELSE '' END,
+                 CASE WHEN v.State IS NOT NULL AND v.State <> '' THEN CONCAT(', ', v.State) ELSE '' END,
+                 CASE WHEN v.Pincode IS NOT NULL AND v.Pincode <> '' THEN CONCAT(' - ', v.Pincode) ELSE '' END
+               ) AS Address
+        FROM VerificationRequests vr
+        INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
+        INNER JOIN Vendor v ON v.VendorId = ve.VendorId
+        WHERE vr.Token = @Token
+      `);
 
     if (check.recordset.length === 0) {
       return res.status(404).json({ error: 'Invalid verification link.' });
@@ -101,6 +131,15 @@ async function confirmVerification(req, res) {
     if (['confirmed', 'updated', 'expired'].includes(record.Status) || new Date() > new Date(record.ExpiresAt)) {
       return res.status(400).json({ error: 'This link is no longer active.' });
     }
+
+    await saveVendorVerificationResponse({
+      requestId: record.RequestId,
+      vendorId: record.VendorId,
+      vendorName: record.VendorName,
+      contactNumber: record.MobileNumber,
+      email: record.Email,
+      address: record.Address
+    });
 
     await pool.request()
       .input('Token', sql.NVarChar(255), token)
@@ -149,19 +188,14 @@ async function submitUpdate(req, res) {
       return res.status(400).json({ error: 'This link is no longer active.' });
     }
 
-    await pool.request()
-      .input('RequestId', sql.Int, record.RequestId)
-      .input('VendorId', sql.Int, record.VendorId)
-      .input('VendorName', sql.NVarChar(200), name)
-      .input('ContactNumber', sql.NVarChar(20), mobileNumber)
-      .input('Email', sql.NVarChar(200), email)
-      .input('Address', sql.NVarChar(500), address)
-      .query(`
-        INSERT INTO VendorVerificationResponse
-          (RequestId, VendorId, VendorName, ContactNumber, Email, Address)
-        VALUES
-          (@RequestId, @VendorId, @VendorName, @ContactNumber, @Email, @Address)
-      `);
+    await saveVendorVerificationResponse({
+      requestId: record.RequestId,
+      vendorId: record.VendorId,
+      vendorName: name,
+      contactNumber: mobileNumber,
+      email,
+      address
+    });
 
     await pool.request()
       .input('Token', sql.NVarChar(255), token)

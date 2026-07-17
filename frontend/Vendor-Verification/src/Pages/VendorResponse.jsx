@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import api from '../Services/api';
 
 const STATUS_STYLES = {
   sent:      { bg: '#e0e7ff', color: '#3730a3', label: 'Sent' },
@@ -46,17 +47,17 @@ function VendorResponse() {
     setLoading(true);
     setErrorMsg('');
     try {
-      const params = new URLSearchParams();
-      if (statusFilter) params.set('status', statusFilter);
-      if (search) params.set('search', search);
+      const response = await api.get('/api/verification/responses', {
+        params: {
+          status: statusFilter || undefined,
+          search: search || undefined,
+        },
+      });
 
-      const res = await fetch(`/api/verification/responses?${params.toString()}`);
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.error || 'Failed to load responses.');
-      setRows(data.data);
+      setRows(response.data?.data || []);
     } catch (err) {
-      setErrorMsg(err.message);
+      const message = err?.response?.data?.error || err?.message || 'Failed to load responses.';
+      setErrorMsg(message);
     } finally {
       setLoading(false);
     }
@@ -70,12 +71,11 @@ function VendorResponse() {
     setChangesLoading(true);
     setChangesModal({ requestId, original: null, submitted: null });
     try {
-      const res = await fetch(`/api/verification/responses/${requestId}/changes`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load changes.');
-      setChangesModal({ requestId, ...data });
+      const response = await api.get(`/api/verification/responses/${requestId}/changes`);
+      setChangesModal({ requestId, ...response.data });
     } catch (err) {
-      setChangesModal({ requestId, error: err.message });
+      const message = err?.response?.data?.error || err?.message || 'Failed to load changes.';
+      setChangesModal({ requestId, error: message });
     } finally {
       setChangesLoading(false);
     }
