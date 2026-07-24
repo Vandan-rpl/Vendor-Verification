@@ -87,7 +87,7 @@ function VendorResponse() {
   }, {});
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', padding: '1.5rem', maxWidth: '1100px', margin: '0 auto' }}>
+    <div style={{ fontFamily: 'system-ui, sans-serif', padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
       <h1 style={{ marginBottom: '0.25rem' }}>Vendor Response</h1>
       <p style={{ color: '#64748b', marginTop: 0, marginBottom: '1.25rem' }}>
         Track every verification request and its current status.
@@ -214,7 +214,7 @@ function ChangesModal({ modal, loading, onClose }) {
       position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50
     }}>
-      <div style={{ background: '#fff', borderRadius: '10px', padding: '1.5rem', width: '480px', maxWidth: '90%' }}>
+      <div style={{ background: '#fff', borderRadius: '10px', padding: '1.5rem', width: 'auto', maxWidth: '90%' }}>
         <h3 style={{ marginTop: 0 }}>Submitted Changes</h3>
 
         {loading && <div>Loading…</div>}

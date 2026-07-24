@@ -1,11 +1,14 @@
 const nodemailer = require("nodemailer");
+const dns = require("dns");
+dns.setDefaultResultOrder("ipv4first");
 
 // Configure via .env
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT),
+  requireTLS: true,
   family: 4,
-  secure: process.env.SMTP_SECURE === "false", // true for 465, false for 587
+  secure: process.env.SMTP_SECURE === "true", // true for 465, false for 587
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
@@ -32,15 +35,28 @@ transporter.verify((error, success) => {
 
 function buildVerificationEmail(vendorName, link) {
   return {
-    subject: `Action Required: Please Verify Your Vendor Details`,
-    html: `
-      <p>Dear ${vendorName},</p>
-      <p>We're updating our vendor records and need you to confirm your details are correct.</p>
-      <p><a href="${link}">Click here to review and confirm your details</a></p>
-      <p>If everything looks correct, you can confirm with one click. If anything has changed, you can update it on the same page.</p>
-      <p>This link will expire in 7 days.</p>
-      <p>Thank you.</p>
-    `,
+    subject: "Action Required: Verify Your Vendor Information",
+
+    text: `
+Dear ${vendorName},
+
+Rubamin Pvt. Ltd. is updating its vendor records and requests you to verify your information.
+
+Please review and confirm your details using the link below:
+
+${link}
+
+If your information is correct, simply submit the confirmation. If any details have changed, you can update them before submitting.
+
+This verification link will expire in 7 days.
+
+If you have any questions, please contact us.
+
+Thank you.
+
+Regards,
+Rubamin Pvt. Ltd.
+`,
   };
 }
 
@@ -71,7 +87,7 @@ async function sendMail(to, { subject, html }) {
   }
 
   return transporter.sendMail({
-    from: process.env.MAIL_FROM,
+    from: `Rubamin Pvt. Ltd.`,
     to,
     subject,
     html,

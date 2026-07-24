@@ -71,9 +71,13 @@ const processVendorExcel = async ({ fileBuffer, fileName, uploadedBy }) => {
       try {
         const vendorId = await vendorUploadModel.insertVendor(transaction, batchId, vendorFields);
 
-        for (const { email } of emails) {
-          if (!email) continue;
-          await vendorUploadModel.insertVendorEmail(transaction, vendorId, email);
+        // Only keep emails that actually have a value, preserving original order
+        const validEmails = emails.filter(({ email }) => !!email);
+
+        for (let idx = 0; idx < validEmails.length; idx++) {
+          const { email } = validEmails[idx];
+          const isPrimary = idx === 0; // first valid email in the row becomes primary
+          await vendorUploadModel.insertVendorEmail(transaction, vendorId, email, isPrimary);
         }
 
         successCount++;

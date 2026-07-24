@@ -69,22 +69,25 @@ const insertVendor = async (transaction, batchId, vendorFields) => {
 
 // --- VendorEmail ---
 
-const insertVendorEmail = async (transaction, vendorId, email) => {
+const insertVendorEmail = async (transaction, vendorId, email, is_primary = false) => {
   await new sql.Request(transaction)
     .input("VendorId", sql.Int, vendorId)
     .input("Email", sql.NVarChar(150), email)
     .input("IsActive", sql.Bit, true)
+    .input("is_primary", sql.Bit, is_primary)
     .query(`
       INSERT INTO VendorEmail (
         VendorId,
         Email,
         IsActive,
+        is_primary,
         CreatedAt
       )
       VALUES (
         @VendorId,
         @Email,
         @IsActive,
+        @is_primary,
         GETDATE()
       )
     `);

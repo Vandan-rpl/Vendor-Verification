@@ -6,18 +6,19 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Generic rate-limited processor.
- * `items`  = array of anything to process
+ * `items`  = array of anything to process (caller decides what belongs in this array —
+ *            e.g. only primary vendor emails, or all verification emails, etc.)
  * `sendFn` = async (item) => {} — does the actual send + any DB bookkeeping for one item
  * `label`  = just for clearer console logs
  */
-async function processQueue(items, sendFn, label = 'emails') {
+async function processQueue(items, sendFn, label = 'Email') {
   let count = 0;
 
   for (const item of items) {
     try {
       await sendFn(item);
     } catch (err) {
-      console.error(`[emailQueue] Failed to process item:`, err.message,err.status);
+      console.error(`[emailQueue] Failed to process item:`, err.message, err.status);
     }
 
     count++;

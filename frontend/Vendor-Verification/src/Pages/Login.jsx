@@ -22,7 +22,7 @@ function Login() {
       toast.success("Login successful!");
 
       resetForm();
-      navigate("/dashboard");
+      navigate("/");
       login();
     } catch (error) {
       toast.error(error.response?.data?.message || "Something went wrong");

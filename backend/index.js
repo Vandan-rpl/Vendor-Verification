@@ -8,15 +8,14 @@ const dashboardRoutes = require("./Routes/dashboardRoutes");
 const verifyRoutes = require("./Routes/verifyRoutes");
 const errorHandler = require("./Middlewares/errorHandler");
 
-const dns = require("node:dns");
-
-dns.setDefaultResultOrder("ipv4first");
+// const dns = require("node:dns");
+// dns.setDefaultResultOrder("ipv4first");
 
 const { poolConnect } = require("./Config/db");
 const cookieParser = require("cookie-parser");
 
 const app = express();
-app.use(cors({origin: "http://localhost:5173", credentials:true}));
+app.use(cors({origin: process.env.CLIENT_URL, credentials:true}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

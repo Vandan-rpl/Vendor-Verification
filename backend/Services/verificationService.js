@@ -18,7 +18,7 @@ async function processNewVerifications() {
   const pendingVendorsResult = await pool.request().query(`
     SELECT v.VendorId, v.VendorName, ve.EmailId, ve.Email
     FROM Vendor v
-    INNER JOIN VendorEmail ve ON ve.VendorId = v.VendorId AND ve.is_primary = 0
+    INNER JOIN VendorEmail ve ON ve.VendorId = v.VendorId AND ve.is_primary = 1
     WHERE v.Status = 'pending'
       AND NOT EXISTS (
         SELECT 1 FROM VerificationRequests vr
@@ -97,7 +97,6 @@ async function processNewVerifications() {
             SET Status = 'failed'
             WHERE RequestId = @RequestId AND Status = 'queued'
           `);
-
         throw err;
       }
     },
