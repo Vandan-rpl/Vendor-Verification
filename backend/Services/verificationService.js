@@ -1,13 +1,20 @@
-const crypto = require('crypto');
-const { sql, pool, poolConnect } = require('../Config/db');
-const { sendMail, buildVerificationEmail, buildReminderEmail } = require('./mailer');
-const { processQueue } = require('../emailQueue');
+const crypto = require("crypto");
+const { sql, pool, poolConnect } = require("../Config/db");
+const {
+  sendMail,
+  buildVerificationEmail,
+  buildReminderEmail,
+} = require("./mailer");
+const { processQueue } = require("../emailQueue");
 
 const TOKEN_EXPIRY_DAYS = 7;
-const BASE_URL = process.env.APP_BASE_URL || 'http://localhost:5173';
+const BASE_URL = process.env.APP_BASE_URL || "http://localhost:5173";
 
 const REMINDER_AFTER_DAYS = 3;
 const MAX_REMINDERS = 2;
+
+let verificationQueueRunning = false;
+let reminderQueueRunning = false;
 
 // 1. Find vendors still 'pending', create their VerificationRequests rows
 //    immediately (so they're never picked up twice), then dispatch the
@@ -15,98 +22,169 @@ const MAX_REMINDERS = 2;
 async function processNewVerifications() {
   await poolConnect;
 
-  const pendingVendorsResult = await pool.request().query(`
-    SELECT v.VendorId, v.VendorName, ve.EmailId, ve.Email
-    FROM Vendor v
-    INNER JOIN VendorEmail ve ON ve.VendorId = v.VendorId AND ve.is_primary = 1
-    WHERE v.Status = 'pending'
-      AND NOT EXISTS (
-        SELECT 1 FROM VerificationRequests vr
-        WHERE vr.EmailId = ve.EmailId
-          AND vr.Status IN ('queued', 'sent', 'opened', 'confirmed', 'updated')
-      )
-  `);
-
-  const vendors = pendingVendorsResult.recordset;
-
-  if (vendors.length === 0) {
+  if (verificationQueueRunning) {
+    console.log("[verificationService] Verification queue already running.");
     return { queued: 0, vendors: [] };
   }
 
-  const queuedVendors = [];
+  verificationQueueRunning = true;
 
-  // Step 1: create DB rows in a queued state first. The request only flips to
-  // 'sent' after the mail send succeeds; if the send fails, it stays 'queued'
-  // or is marked 'failed'. This prevents false-positive sent counts.
-  for (const vendor of vendors) {
-    const token = crypto.randomUUID();
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + TOKEN_EXPIRY_DAYS);
+  try {
+    // STEP 1
+    // Create VerificationRequests only for brand-new vendors
 
-    const insertResult = await pool.request()
-      .input('EmailId', sql.Int, vendor.EmailId)
-      .input('Token', sql.NVarChar(255), token)
-      .input('ExpiresAt', sql.DateTime, expiresAt)
-      .query(`
-        INSERT INTO VerificationRequests (EmailId, Token, Status, SentAt, ExpiresAt)
-        OUTPUT INSERTED.RequestId
-        VALUES (@EmailId, @Token, 'queued', NULL, @ExpiresAt)
-      `);
+    const pendingVendorsResult = await pool.request().query(`
+      SELECT
+          v.VendorId,
+          v.VendorName,
+          ve.EmailId,
+          ve.Email
+      FROM Vendor v
+      INNER JOIN VendorEmail ve
+          ON ve.VendorId = v.VendorId
+          AND ve.is_primary = 1
+      WHERE v.Status='pending'
+      AND NOT EXISTS
+      (
+          SELECT 1
+          FROM VerificationRequests vr
+          WHERE vr.EmailId = ve.EmailId
+      )
+    `);
 
-    const requestId = insertResult.recordset[0]?.RequestId;
+    for (const vendor of pendingVendorsResult.recordset) {
+      const token = crypto.randomUUID();
 
-    queuedVendors.push({
-      ...vendor,
-      token,
-      requestId,
-      link: `${BASE_URL}/verify/${token}`
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + TOKEN_EXPIRY_DAYS);
+
+      await pool
+        .request()
+        .input("EmailId", sql.Int, vendor.EmailId)
+        .input("Token", sql.NVarChar(255), token)
+        .input("ExpiresAt", sql.DateTime, expiresAt).query(`
+            INSERT INTO VerificationRequests
+            (
+                EmailId,
+                Token,
+                Status,
+                SentAt,
+                ExpiresAt
+            )
+            VALUES
+            (
+                @EmailId,
+                @Token,
+                'queued',
+                NULL,
+                @ExpiresAt
+            )
+        `);
+    }
+    // STEP 2
+    // Retry failed emails
+
+    await pool.request().query(`
+      UPDATE VerificationRequests
+      SET Status='queued'
+      WHERE Status='failed'
+    `);
+
+    // STEP 3
+    // Load ALL queued requests
+    // Includes:
+    //   New requests
+    //   Failed retries
+    //   Requests left after server restart
+
+    const queuedResult = await pool.request().query(`
+      SELECT
+
+          vr.RequestId,
+          vr.Token,
+
+          v.VendorId,
+          v.VendorName,
+
+          ve.Email
+
+      FROM VerificationRequests vr
+
+      INNER JOIN VendorEmail ve
+          ON vr.EmailId=ve.EmailId
+
+      INNER JOIN Vendor v
+          ON ve.VendorId=v.VendorId
+
+      WHERE vr.Status='queued'
+    `);
+
+    const queuedRequests = queuedResult.recordset;
+
+    if (queuedRequests.length === 0) {
+      return { queued: 0, vendors: [] };
+    }
+
+    processQueue(
+      queuedRequests,
+
+      async (vendor) => {
+        try {
+          await sendMail(
+            vendor.Email,
+            buildVerificationEmail(
+              vendor.VendorName,
+              `${BASE_URL}/verify/${vendor.Token}`,
+            ),
+          );
+
+          await pool.request().input("RequestId", sql.Int, vendor.RequestId)
+            .query(`
+              UPDATE VerificationRequests
+              SET
+                  Status='sent',
+                  SentAt=GETDATE()
+              WHERE RequestId=@RequestId
+            `);
+
+          await pool.request().input("VendorId", sql.Int, vendor.VendorId)
+            .query(`
+              UPDATE Vendor
+              SET Status='sent'
+              WHERE VendorId=@VendorId
+            `);
+
+          console.log(`Mail sent to ${vendor.Email}`);
+        } catch (err) {
+          await pool.request().input("RequestId", sql.Int, vendor.RequestId)
+            .query(`
+              UPDATE VerificationRequests
+              SET Status='failed'
+              WHERE RequestId=@RequestId
+            `);
+
+          throw err;
+        }
+      },
+
+      "verification emails",
+    ).finally(() => {
+      verificationQueueRunning = false;
     });
+
+    return {
+      queued: queuedRequests.length,
+
+      vendors: queuedRequests.map((v) => ({
+        vendorId: v.VendorId,
+        email: v.Email,
+      })),
+    };
+  } catch (err) {
+    verificationQueueRunning = false;
+
+    throw err;
   }
-
-  // Step 2: dispatch emails in the background, respecting rate limits.
-  // Not awaited here on purpose — this can take hours for large batches,
-  // and the caller (HTTP request or cron tick) shouldn't be blocked on it.
-  processQueue(
-    queuedVendors,
-    async (vendor) => {
-      try {
-        await sendMail(vendor.Email, buildVerificationEmail(vendor.VendorName, vendor.link));
-
-        await pool.request()
-          .input('RequestId', sql.Int, vendor.requestId)
-          .query(`
-            UPDATE VerificationRequests
-            SET Status = 'sent', SentAt = GETDATE()
-            WHERE RequestId = @RequestId AND Status = 'queued'
-          `);
-
-        await pool.request()
-          .input('VendorId', sql.Int, vendor.VendorId)
-          .query(`
-            UPDATE Vendor
-            SET Status = 'sent'
-            WHERE VendorId = @VendorId AND Status = 'pending'
-          `);
-
-        console.log(`Mail sent to ${vendor.Email}`);
-      } catch (err) {
-        await pool.request()
-          .input('RequestId', sql.Int, vendor.requestId)
-          .query(`
-            UPDATE VerificationRequests
-            SET Status = 'failed'
-            WHERE RequestId = @RequestId AND Status = 'queued'
-          `);
-        throw err;
-      }
-    },
-    'verification emails'
-  ).catch((err) => console.error('[processNewVerifications] queue error:', err));
-
-  return {
-    queued: queuedVendors.length,
-    vendors: queuedVendors.map((v) => ({ vendorId: v.VendorId, email: v.Email, token: v.token }))
-  };
 }
 
 // 2. Send reminders to vendors stuck in 'sent'/'opened' (VerificationRequests) past REMINDER_AFTER_DAYS
@@ -114,10 +192,10 @@ async function processNewVerifications() {
 async function processReminders() {
   await poolConnect;
 
-  const staleResult = await pool.request()
-    .input('ReminderAfterDays', sql.Int, REMINDER_AFTER_DAYS)
-    .input('MaxReminders', sql.Int, MAX_REMINDERS)
-    .query(`
+  const staleResult = await pool
+    .request()
+    .input("ReminderAfterDays", sql.Int, REMINDER_AFTER_DAYS)
+    .input("MaxReminders", sql.Int, MAX_REMINDERS).query(`
       SELECT vr.RequestId, vr.Token, v.VendorName, ve.Email
       FROM VerificationRequests vr
       INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
@@ -144,9 +222,7 @@ async function processReminders() {
       const link = `${BASE_URL}/verify/${req.Token}`;
       await sendMail(req.Email, buildReminderEmail(req.VendorName, link));
 
-      await pool.request()
-        .input('RequestId', sql.Int, req.RequestId)
-        .query(`
+      await pool.request().input("RequestId", sql.Int, req.RequestId).query(`
           UPDATE VerificationRequests
           SET ReminderCount = ReminderCount + 1,
               LastReminderSentAt = GETDATE()
@@ -155,8 +231,8 @@ async function processReminders() {
 
       console.log(`Reminder sent to ${req.Email}`);
     },
-    'reminder emails'
-  ).catch((err) => console.error('[processReminders] queue error:', err));
+    "reminder emails",
+  ).catch((err) => console.error("[processReminders] queue error:", err));
 
   return { queued: staleRequests.length };
 }
@@ -173,4 +249,8 @@ async function processExpirations() {
   `);
 }
 
-module.exports = { processNewVerifications, processReminders, processExpirations };
+module.exports = {
+  processNewVerifications,
+  processReminders,
+  processExpirations,
+};

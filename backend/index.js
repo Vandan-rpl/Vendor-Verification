@@ -7,6 +7,7 @@ const vendorRoutes = require("./Routes/vendorRoutes");
 const dashboardRoutes = require("./Routes/dashboardRoutes");
 const verifyRoutes = require("./Routes/verifyRoutes");
 const errorHandler = require("./Middlewares/errorHandler");
+const { startCronJobs } = require("./Cron/cronJobs");
 
 // const dns = require("node:dns");
 // dns.setDefaultResultOrder("ipv4first");
@@ -26,6 +27,8 @@ app.use("/api",vendorRoutes);
 app.use("/api",dashboardRoutes);
 app.use("/api", verifyRoutes);
 app.use(errorHandler);
+
+startCronJobs();
 
 const PORT = process.env.LOCALHOST_PORT || 5000;
 

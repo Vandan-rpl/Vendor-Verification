@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { processNewVerifications, processReminders, processExpirations } = require('./verificationService');
+const { processNewVerifications, processReminders, processExpirations } = require('../Services/verificationService');
 
 function startCronJobs() {
   // Every 15 minutes: send verification emails to any newly uploaded vendors

@@ -37,26 +37,45 @@ function buildVerificationEmail(vendorName, link) {
   return {
     subject: "Action Required: Verify Your Vendor Information",
 
-    text: `
-Dear ${vendorName},
+    html: `
+      <p>Dear ${vendorName},</p>
 
-Rubamin Pvt. Ltd. is updating its vendor records and requests you to verify your information.
+      <p>
+        Rubamin Pvt. Ltd. is updating its vendor records and requests you to
+        verify your information.
+      </p>
 
-Please review and confirm your details using the link below:
+      <p>Please review and confirm your details using the button below:</p>
 
-${link}
+      <p>
+        If your information is correct, simply submit the confirmation. If any
+        details have changed, you can update them before submitting.
+      </p>
 
-If your information is correct, simply submit the confirmation. If any details have changed, you can update them before submitting.
+      <p style="margin: 30px 0;">
+        <a href="${link}"
+           style="
+              background-color:#0d6efd;
+              color:#ffffff;
+              padding:12px 24px;
+              text-decoration:none;
+              border-radius:4px;
+              font-weight:bold;
+              display:inline-block;">
+          Verify Now
+        </a>
+      </p>
 
-This verification link will expire in 7 days.
+      <p>This verification link will expire in <strong>7 days</strong>.</p>
 
-If you have any questions, please contact us.
+      <p>If you have any questions, please contact us.</p>
 
-Thank you.
-
-Regards,
-Rubamin Pvt. Ltd.
-`,
+      <p>
+        Thank you.<br><br>
+        Regards,<br>
+        <strong>Rubamin Pvt. Ltd.</strong>
+      </p>
+    `,
   };
 }
 
@@ -78,6 +97,7 @@ async function sendMail(to, { subject, html }) {
 
     console.log("--------------------------------------------------");
     console.log("[DRY RUN] Email NOT sent (SEND_EMAILS=false)");
+    console.log("From    : Rubamin Pvt. Ltd. ",process.env.FROM_USER)
     console.log("To      :", to);
     console.log("Subject :", subject);
     console.log("Link    :", linkMatch ? linkMatch[1] : "(not found)");
@@ -87,7 +107,7 @@ async function sendMail(to, { subject, html }) {
   }
 
   return transporter.sendMail({
-    from: `Rubamin Pvt. Ltd.`,
+    from: `"Rubamin Pvt. Ltd."`,
     to,
     subject,
     html,
