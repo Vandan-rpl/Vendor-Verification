@@ -24,3 +24,5 @@ coverage/
 *.db
 
 Scripts/generateHash.js
+
+./uploads

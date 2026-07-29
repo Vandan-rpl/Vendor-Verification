@@ -1,7 +1,19 @@
 const { sql, pool, poolConnect } = require('../Config/db');
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+
+const BASE_UPLOAD_PATH = process.env.UPLOAD_BASE_PATH;
+
+function sanitizeVendorCode(code) {
+  if (code === undefined || code === null) {
+    throw new Error('VendorCode is missing — cannot create upload folder.');
+  }
+  return String(code).replace(/[^a-zA-Z0-9_-]/g, '');
+}
 
 async function saveVendorVerificationResponse({ requestId, vendorId, vendorName, contactNumber, email, address }) {
-  await pool.request()
+   const result = await pool.request()
     .input('RequestId', sql.Int, requestId)
     .input('VendorId', sql.Int, vendorId)
     .input('VendorName', sql.NVarChar(200), vendorName)
@@ -11,9 +23,47 @@ async function saveVendorVerificationResponse({ requestId, vendorId, vendorName,
     .query(`
       INSERT INTO VendorVerificationResponse
         (RequestId, VendorId, VendorName, ContactNumber, Email, Address)
+      OUTPUT INSERTED.Id
       VALUES
         (@RequestId, @VendorId, @VendorName, @ContactNumber, @Email, @Address)
     `);
+
+  return result.recordset[0].Id;
+}
+
+async function saveVendorDocuments({ responseId, vendorCode, files }) {
+  if (!files || !files.length) return;
+
+  const safeVendorCode = sanitizeVendorCode(vendorCode);
+  const vendorFolder = path.join(BASE_UPLOAD_PATH, safeVendorCode);
+
+  if (!fs.existsSync(vendorFolder)) {
+    fs.mkdirSync(vendorFolder, { recursive: true });
+  }
+
+  for (const file of files) {
+    const ext = path.extname(file.originalname);
+    const storedFileName = `${uuidv4()}${ext}`;
+    const destPath = path.join(vendorFolder, storedFileName);
+
+    fs.renameSync(file.path, destPath);
+
+    const relativeFilePath = `${safeVendorCode}/${storedFileName}`;
+
+    await pool.request()
+      .input('ResponseId', sql.Int, responseId)
+      .input('OriginalFileName', sql.NVarChar(255), file.originalname)
+      .input('StoredFileName', sql.NVarChar(255), storedFileName)
+      .input('FilePath', sql.NVarChar(500), relativeFilePath)
+      .input('MimeType', sql.NVarChar(100), file.mimetype)
+      .input('FileSize', sql.BigInt, file.size)
+      .query(`
+        INSERT INTO VendorDocuments
+          (ResponseId, OriginalFileName, StoredFileName, FilePath, MimeType, FileSize)
+        VALUES
+          (@ResponseId, @OriginalFileName, @StoredFileName, @FilePath, @MimeType, @FileSize)
+      `);
+  }
 }
 
 // GET /api/verify/:token
@@ -110,7 +160,7 @@ async function confirmVerification(req, res) {
       .input('Token', sql.NVarChar(255), token)
       .query(`
         SELECT vr.RequestId, vr.Status, vr.ExpiresAt,
-               ve.VendorId, v.VendorName, v.MobileNumber, ve.Email,
+               ve.VendorId, v.VendorName, v.MobileNumber, v.VendorCode, ve.Email,
                CONCAT(
                  v.AddressLine1,
                  CASE WHEN v.AddressLine2 IS NOT NULL AND v.AddressLine2 <> '' THEN CONCAT(', ', v.AddressLine2) ELSE '' END,
@@ -132,13 +182,19 @@ async function confirmVerification(req, res) {
       return res.status(400).json({ error: 'This link is no longer active.' });
     }
 
-    await saveVendorVerificationResponse({
+    const responseId = await saveVendorVerificationResponse({
       requestId: record.RequestId,
       vendorId: record.VendorId,
       vendorName: record.VendorName,
       contactNumber: record.MobileNumber,
       email: record.Email,
       address: record.Address
+    });
+
+    await saveVendorDocuments({
+      responseId,
+      vendorCode: record.VendorCode,
+      files: req.files
     });
 
     await pool.request()
@@ -174,9 +230,10 @@ async function submitUpdate(req, res) {
     const check = await pool.request()
       .input('Token', sql.NVarChar(255), token)
       .query(`
-        SELECT vr.RequestId, vr.Status, vr.ExpiresAt, ve.VendorId
+        SELECT vr.RequestId, vr.Status, vr.ExpiresAt, v.VendorCode, ve.VendorId
         FROM VerificationRequests vr
         INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
+        INNER JOIN Vendor v ON v.VendorId = ve.VendorId
         WHERE vr.Token = @Token
       `);
 
@@ -188,13 +245,19 @@ async function submitUpdate(req, res) {
       return res.status(400).json({ error: 'This link is no longer active.' });
     }
 
-    await saveVendorVerificationResponse({
+    const responseId = await saveVendorVerificationResponse({
       requestId: record.RequestId,
       vendorId: record.VendorId,
       vendorName: name,
       contactNumber: mobileNumber,
       email,
       address
+    });
+
+    await saveVendorDocuments({
+      responseId,
+      vendorCode: record.VendorCode,
+      files: req.files
     });
 
     await pool.request()

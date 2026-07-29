@@ -7,6 +7,17 @@ const {
   submitUpdate
 } = require('../Controller/verifyController');
 const { getResponses, getResponseChanges, getSubmissions } = require('../Controller/responseController');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+
+const TEMP_UPLOAD_PATH = path.join(__dirname, '..', '..', 'temp_uploads');
+
+if (!fs.existsSync(TEMP_UPLOAD_PATH)) {
+  fs.mkdirSync(TEMP_UPLOAD_PATH, { recursive: true });
+}
+
+const upload = multer({ dest: TEMP_UPLOAD_PATH });
 
 // POST /api/verification/start
 router.post('/verification/start', startVerification);
@@ -20,7 +31,7 @@ router.get('/verification/submissions', getSubmissions);
 
 // Vendor-facing token routes
 router.get('/verification/:token', getVerificationDetails);
-router.post('/verification/:token/confirm', confirmVerification);
-router.post('/verification/:token/update', submitUpdate);
+router.post('/verification/:token/confirm', upload.array('file', 10), confirmVerification);
+router.post('/verification/:token/update', upload.array('file', 10), submitUpdate);
 
 module.exports = router;
