@@ -5,11 +5,25 @@ const { v4: uuidv4 } = require('uuid');
 
 const BASE_UPLOAD_PATH = process.env.UPLOAD_BASE_PATH;
 
+// Document types the vendor can submit. GST and Aadhar are mandatory;
+// keep this in sync with DOCUMENT_SLOTS on the frontend.
+const REQUIRED_DOCUMENT_TYPES = ['GST', 'Aadhar'];
+const ALL_DOCUMENT_TYPES = ['GST', 'Aadhar', 'Invoice'];
+
 function sanitizeVendorCode(code) {
   if (code === undefined || code === null) {
     throw new Error('VendorCode is missing — cannot create upload folder.');
   }
   return String(code).replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+// req.files here is the OBJECT shape produced by multer.fields(), e.g.
+// { GST: [file], Aadhar: [file], Invoice: [file] } — not the flat array
+// you get from multer.array(). Missing types simply won't be keys on it.
+function getMissingRequiredDocuments(filesByType) {
+  return REQUIRED_DOCUMENT_TYPES.filter(
+    (type) => !filesByType || !filesByType[type] || !filesByType[type][0]
+  );
 }
 
 async function saveVendorVerificationResponse({ requestId, vendorId, vendorName, contactNumber, email, address }) {
@@ -31,8 +45,9 @@ async function saveVendorVerificationResponse({ requestId, vendorId, vendorName,
   return result.recordset[0].Id;
 }
 
-async function saveVendorDocuments({ responseId, vendorCode, files }) {
-  if (!files || !files.length) return;
+// filesByType: multer.fields() object, e.g. { GST: [file], Aadhar: [file], Invoice: [file] }
+async function saveVendorDocuments({ responseId, vendorCode, filesByType }) {
+  if (!filesByType) return [];
 
   const safeVendorCode = sanitizeVendorCode(vendorCode);
   const vendorFolder = path.join(BASE_UPLOAD_PATH, safeVendorCode);
@@ -41,7 +56,12 @@ async function saveVendorDocuments({ responseId, vendorCode, files }) {
     fs.mkdirSync(vendorFolder, { recursive: true });
   }
 
-  for (const file of files) {
+  const saved = [];
+
+  for (const documentType of ALL_DOCUMENT_TYPES) {
+    const file = filesByType[documentType] && filesByType[documentType][0];
+    if (!file) continue;
+
     const ext = path.extname(file.originalname);
     const storedFileName = `${uuidv4()}${ext}`;
     const destPath = path.join(vendorFolder, storedFileName);
@@ -57,13 +77,18 @@ async function saveVendorDocuments({ responseId, vendorCode, files }) {
       .input('FilePath', sql.NVarChar(500), relativeFilePath)
       .input('MimeType', sql.NVarChar(100), file.mimetype)
       .input('FileSize', sql.BigInt, file.size)
+      .input('DocumentType', sql.NVarChar(100), documentType)
       .query(`
         INSERT INTO VendorDocuments
-          (ResponseId, OriginalFileName, StoredFileName, FilePath, MimeType, FileSize)
+          (ResponseId, OriginalFileName, StoredFileName, FilePath, MimeType, FileSize, DocumentType)
         VALUES
-          (@ResponseId, @OriginalFileName, @StoredFileName, @FilePath, @MimeType, @FileSize)
+          (@ResponseId, @OriginalFileName, @StoredFileName, @FilePath, @MimeType, @FileSize, @DocumentType)
       `);
+
+    saved.push({ originalFileName: file.originalname, documentType });
   }
+
+  return saved;
 }
 
 // GET /api/verify/:token
@@ -150,7 +175,9 @@ async function getVerificationDetails(req, res) {
 }
 
 // POST /api/verify/:token/confirm
-// Vendor says "all details are correct" — no data change, just marks confirmed
+// Vendor says "all details are correct" — no data change, just marks confirmed.
+// Documents are NOT required here — GST/Aadhar are only mandatory on the
+// update/edit path (submitUpdate), where the vendor is changing details.
 async function confirmVerification(req, res) {
   const { token } = req.params;
   try {
@@ -194,7 +221,7 @@ async function confirmVerification(req, res) {
     await saveVendorDocuments({
       responseId,
       vendorCode: record.VendorCode,
-      files: req.files
+      filesByType: req.files
     });
 
     await pool.request()
@@ -215,13 +242,19 @@ async function confirmVerification(req, res) {
 
 // POST /api/verify/:token/update
 // Vendor submits edited details — stored in VendorVerificationResponse for review,
-// does NOT touch the live Vendor table
+// does NOT touch the live Vendor table.
+// Requires GST and Aadhar files in the SAME multipart request (route uses multer.fields()).
 async function submitUpdate(req, res) {
   const { token } = req.params;
   const { name, mobileNumber, email, address } = req.body;
 
   if (!name || !mobileNumber || !email || !address) {
     return res.status(400).json({ error: 'All fields are required.' });
+  }
+
+  const missingDocs = getMissingRequiredDocuments(req.files);
+  if (missingDocs.length) {
+    return res.status(400).json({ error: `Please attach: ${missingDocs.join(', ')} before submitting.` });
   }
 
   try {
@@ -257,7 +290,7 @@ async function submitUpdate(req, res) {
     await saveVendorDocuments({
       responseId,
       vendorCode: record.VendorCode,
-      files: req.files
+      filesByType: req.files
     });
 
     await pool.request()

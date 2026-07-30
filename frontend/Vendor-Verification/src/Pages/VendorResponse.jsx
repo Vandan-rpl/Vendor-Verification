@@ -32,6 +32,33 @@ function formatDate(value) {
   return new Date(value).toLocaleString();
 }
 
+function formatBytes(bytes) {
+  if (!bytes && bytes !== 0) return '—';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = Number(bytes);
+  let index = 0;
+
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+
+  return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function buildDocumentDownloadUrl(filePath) {
+  if (!filePath) return null;
+
+  const normalizedPath = filePath.replace(/^\/+/g, '');
+  const baseUrl = api.defaults.baseURL ? api.defaults.baseURL.replace(/\/$/, '') : '';
+
+  if (!baseUrl) {
+    return `/uploads/${normalizedPath}`;
+  }
+
+  return `${baseUrl}/uploads/${normalizedPath}`;
+}
+
 function VendorResponse() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -221,21 +248,53 @@ function ChangesModal({ modal, loading, onClose }) {
         {modal.error && <div style={{ color: '#b91c1c' }}>{modal.error}</div>}
 
         {modal.original && modal.submitted && (
-          <table style={{ width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
-                <th style={{ textAlign: 'left', padding: '0.4rem' }}>Field</th>
-                <th style={{ textAlign: 'left', padding: '0.4rem' }}>Original</th>
-                <th style={{ textAlign: 'left', padding: '0.4rem' }}>Submitted</th>
-              </tr>
-            </thead>
-            <tbody>
-              <ChangeRow label="Name" original={modal.original.Name} submitted={modal.submitted.VendorName} />
-              <ChangeRow label="Mobile" original={modal.original.MobileNumber} submitted={modal.submitted.ContactNumber} />
-              <ChangeRow label="Email" original={modal.original.Email} submitted={modal.submitted.Email} />
-              <ChangeRow label="Address" original={modal.original.Address} submitted={modal.submitted.Address} />
-            </tbody>
-          </table>
+          <>
+            <table style={{ width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                  <th style={{ textAlign: 'left', padding: '0.4rem' }}>Field</th>
+                  <th style={{ textAlign: 'left', padding: '0.4rem' }}>Original</th>
+                  <th style={{ textAlign: 'left', padding: '0.4rem' }}>Submitted</th>
+                </tr>
+              </thead>
+              <tbody>
+                <ChangeRow
+                  label="Name"
+                  original={modal.original.Name || modal.original.VendorName}
+                  submitted={modal.submitted.VendorName || modal.submitted.Name}
+                />
+                <ChangeRow label="Mobile" original={modal.original.MobileNumber} submitted={modal.submitted.ContactNumber} />
+                <ChangeRow label="Email" original={modal.original.Email} submitted={modal.submitted.Email} />
+                <ChangeRow label="Address" original={modal.original.Address} submitted={modal.submitted.Address} />
+              </tbody>
+            </table>
+
+            <div style={{ marginTop: '1.25rem' }}>
+              <h4 style={{ margin: '0 0 0.5rem' }}>Uploaded Documents</h4>
+              {Array.isArray(modal.documents) && modal.documents.length > 0 ? (
+                <ul style={{ margin: 0, paddingLeft: '1rem' }}>
+                  {modal.documents.map((doc) => {
+                    const documentUrl = buildDocumentDownloadUrl(doc.FilePath);
+                    return (
+                      <li key={doc.DocumentId || `${doc.DocumentType}-${doc.OriginalFileName}`} style={{ marginBottom: '0.4rem' }}>
+                        <strong>{doc.DocumentType}</strong>: {' '}
+                        {documentUrl ? (
+                          <a href={documentUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>
+                            {doc.OriginalFileName}
+                          </a>
+                        ) : (
+                          <span>{doc.OriginalFileName}</span>
+                        )}
+                        {doc.FileSize ? ` (${formatBytes(doc.FileSize)})` : ''}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div style={{ color: '#64748b' }}>No documents uploaded for this response.</div>
+              )}
+            </div>
+          </>
         )}
 
         <div style={{ marginTop: '1.25rem', textAlign: 'right' }}>

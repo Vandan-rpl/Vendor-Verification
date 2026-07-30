@@ -19,6 +19,15 @@ if (!fs.existsSync(TEMP_UPLOAD_PATH)) {
 
 const upload = multer({ dest: TEMP_UPLOAD_PATH });
 
+// Field name = document type. This makes req.files come back as
+// { GST: [file], Aadhar: [file], Invoice: [file] } instead of a flat
+// array, so saveVendorDocuments knows exactly which type each file is.
+const documentUpload = upload.fields([
+  { name: 'GST', maxCount: 1 },
+  { name: 'Aadhar', maxCount: 1 },
+  { name: 'Invoice', maxCount: 1 }
+]);
+
 // POST /api/verification/start
 router.post('/verification/start', startVerification);
 
@@ -31,7 +40,7 @@ router.get('/verification/submissions', getSubmissions);
 
 // Vendor-facing token routes
 router.get('/verification/:token', getVerificationDetails);
-router.post('/verification/:token/confirm', upload.array('file', 10), confirmVerification);
-router.post('/verification/:token/update', upload.array('file', 10), submitUpdate);
+router.post('/verification/:token/confirm', documentUpload, confirmVerification);
+router.post('/verification/:token/update', documentUpload, submitUpdate);
 
 module.exports = router;

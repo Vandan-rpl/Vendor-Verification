@@ -79,7 +79,7 @@ async function getResponseChanges(req, res) {
     const submittedResult = await pool.request()
       .input('RequestId', sql.Int, requestId)
       .query(`
-        SELECT TOP 1 VendorName, ContactNumber, Email, Address, SubmittedAt
+        SELECT TOP 1 Id, VendorName, ContactNumber, Email, Address, SubmittedAt
         FROM VendorVerificationResponse
         WHERE RequestId = @RequestId
         ORDER BY SubmittedAt DESC
@@ -89,9 +89,27 @@ async function getResponseChanges(req, res) {
       return res.status(404).json({ error: 'No submitted update found for this request.' });
     }
 
+    const submitted = submittedResult.recordset[0];
+
+    const documentsResult = await pool.request()
+      .input('ResponseId', sql.Int, submitted.Id)
+      .query(`
+        SELECT
+          DocumentId,
+          DocumentType,
+          OriginalFileName,
+          FilePath,
+          MimeType,
+          FileSize
+        FROM VendorDocuments
+        WHERE ResponseId = @ResponseId
+        ORDER BY DocumentType, OriginalFileName
+      `);
+
     return res.status(200).json({
       original: vendorResult.recordset[0],
-      submitted: submittedResult.recordset[0]
+      submitted,
+      documents: documentsResult.recordset
     });
 
   } catch (err) {

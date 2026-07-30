@@ -8,30 +8,29 @@ export const getVerificationDetails = async (token) => {
   return response;
 };
 
-export const confirmVerification = async (token) => {
+// formData contains the GST/Aadhar/Invoice files (appended by VerifyPage).
+// No Content-Type header here — axios sets the multipart boundary itself
+// when the body is a FormData instance. Setting it manually breaks the upload.
+export const confirmVerification = async (token, formData) => {
   const response = await api.post(
     `/api/verification/${token}/confirm`,
-    {},
+    formData,
     {
       withCredentials: true,
-      headers: {
-        "Content-Type": "application/json",
-      },
     }
   );
 
   return response;
 };
 
-export const updateVerification = async (token, payload) => {
+// formData contains name/mobileNumber/email/address as text fields
+// PLUS the GST/Aadhar/Invoice files, all appended by VerifyPage.
+export const updateVerification = async (token, formData) => {
   const response = await api.post(
     `/api/verification/${token}/update`,
-    payload,
+    formData,
     {
       withCredentials: true,
-      headers: {
-        "Content-Type": "application/json",
-      },
     }
   );
 

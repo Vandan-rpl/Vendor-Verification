@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 require("dotenv").config();
 const authRoutes = require("./Routes/authRoutes");
 const uploadRoutes = require("./Routes/uploadRoutes");
@@ -20,6 +21,9 @@ app.use(cors({origin: process.env.CLIENT_URL, credentials:true}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+const uploadBasePath = process.env.UPLOAD_BASE_PATH || path.join(__dirname, "..", "uploads");
+app.use("/uploads", express.static(uploadBasePath));
 
 app.use("/api", authRoutes);
 app.use("/api",uploadRoutes);
