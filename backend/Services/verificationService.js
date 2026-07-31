@@ -24,7 +24,7 @@ async function processNewVerifications() {
 
   if (verificationQueueRunning) {
     console.log("[verificationService] Verification queue already running.");
-    return { queued: 0, vendors: [] };
+    return { queued: 0, vendors: [], status: "already_running" };
   }
 
   verificationQueueRunning = true;
@@ -81,6 +81,7 @@ async function processNewVerifications() {
             )
         `);
     }
+
     // STEP 2
     // Retry failed emails
 
@@ -122,6 +123,9 @@ async function processNewVerifications() {
     const queuedRequests = queuedResult.recordset;
 
     if (queuedRequests.length === 0) {
+      // IMPORTANT: release the lock here too, otherwise every subsequent
+      // run gets stuck on the "already running" branch forever.
+      verificationQueueRunning = false;
       return { queued: 0, vendors: [] };
     }
 
@@ -130,6 +134,8 @@ async function processNewVerifications() {
 
       async (vendor) => {
         try {
+          console.log(`[processNewVerifications] Attempting sendMail to ${vendor.Email}`);
+
           await sendMail(
             vendor.Email,
             buildVerificationEmail(
@@ -156,6 +162,8 @@ async function processNewVerifications() {
 
           console.log(`Mail sent to ${vendor.Email}`);
         } catch (err) {
+          console.error(`[processNewVerifications] sendMail failed for ${vendor.Email}:`, err);
+
           await pool.request().input("RequestId", sql.Int, vendor.RequestId)
             .query(`
               UPDATE VerificationRequests
@@ -168,7 +176,9 @@ async function processNewVerifications() {
       },
 
       "verification emails",
-    ).finally(() => {
+    ).catch((err) => {
+      console.error("[processNewVerifications] queue error:", err);
+    }).finally(() => {
       verificationQueueRunning = false;
     });
 
@@ -182,7 +192,6 @@ async function processNewVerifications() {
     };
   } catch (err) {
     verificationQueueRunning = false;
-
     throw err;
   }
 }
@@ -192,49 +201,76 @@ async function processNewVerifications() {
 async function processReminders() {
   await poolConnect;
 
-  const staleResult = await pool
-    .request()
-    .input("ReminderAfterDays", sql.Int, REMINDER_AFTER_DAYS)
-    .input("MaxReminders", sql.Int, MAX_REMINDERS).query(`
-      SELECT vr.RequestId, vr.Token, v.VendorName, ve.Email
-      FROM VerificationRequests vr
-      INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
-      INNER JOIN Vendor v ON v.VendorId = ve.VendorId
-      WHERE vr.Status IN ('sent', 'opened')
-        AND vr.ExpiresAt > GETDATE()
-        AND vr.ReminderCount < @MaxReminders
-        AND (
-          (vr.LastReminderSentAt IS NULL AND vr.SentAt <= DATEADD(DAY, -@ReminderAfterDays, GETDATE()))
-          OR
-          (vr.LastReminderSentAt IS NOT NULL AND vr.LastReminderSentAt <= DATEADD(DAY, -@ReminderAfterDays, GETDATE()))
-        )
-    `);
-
-  const staleRequests = staleResult.recordset;
-
-  if (staleRequests.length === 0) {
-    return { queued: 0 };
+  if (reminderQueueRunning) {
+    console.log("[verificationService] Reminder queue already running.");
+    return { queued: 0, status: "already_running" };
   }
 
-  processQueue(
-    staleRequests,
-    async (req) => {
-      const link = `${BASE_URL}/verify/${req.Token}`;
-      await sendMail(req.Email, buildReminderEmail(req.VendorName, link));
+  reminderQueueRunning = true;
 
-      await pool.request().input("RequestId", sql.Int, req.RequestId).query(`
-          UPDATE VerificationRequests
-          SET ReminderCount = ReminderCount + 1,
-              LastReminderSentAt = GETDATE()
-          WHERE RequestId = @RequestId
-        `);
+  try {
+    const staleResult = await pool
+      .request()
+      .input("ReminderAfterDays", sql.Int, REMINDER_AFTER_DAYS)
+      .input("MaxReminders", sql.Int, MAX_REMINDERS)
+      .query(`
+        SELECT vr.RequestId, vr.Token, v.VendorName, ve.Email
+        FROM VerificationRequests vr
+        INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
+        INNER JOIN Vendor v ON v.VendorId = ve.VendorId
+        WHERE vr.Status IN ('sent', 'opened')
+          AND vr.ExpiresAt > GETDATE()
+          AND vr.ReminderCount < @MaxReminders
+          AND (
+            (vr.LastReminderSentAt IS NULL AND vr.SentAt <= DATEADD(DAY, -@ReminderAfterDays, GETDATE()))
+            OR
+            (vr.LastReminderSentAt IS NOT NULL AND vr.LastReminderSentAt <= DATEADD(DAY, -@ReminderAfterDays, GETDATE()))
+          )
+      `);
 
-      console.log(`Reminder sent to ${req.Email}`);
-    },
-    "reminder emails",
-  ).catch((err) => console.error("[processReminders] queue error:", err));
+    const staleRequests = staleResult.recordset;
 
-  return { queued: staleRequests.length };
+    console.log(`[processReminders] Reminder query returned ${staleRequests.length} request(s).`);
+
+    if (staleRequests.length === 0) {
+      reminderQueueRunning = false;
+      return { queued: 0 };
+    }
+
+    processQueue(
+      staleRequests,
+      async (req) => {
+        console.log(`[processReminders] Sending reminder to ${req.Email} for request ${req.RequestId}`);
+        const link = `${BASE_URL}/verify/${req.Token}`;
+
+        try {
+          await sendMail(req.Email, buildReminderEmail(req.VendorName, link));
+
+          await pool.request().input("RequestId", sql.Int, req.RequestId).query(`
+            UPDATE VerificationRequests
+            SET ReminderCount = ReminderCount + 1,
+                LastReminderSentAt = GETDATE()
+            WHERE RequestId = @RequestId
+          `);
+
+          console.log(`Reminder sent to ${req.Email}`);
+        } catch (err) {
+          console.error(`[processReminders] sendMail failed for ${req.Email}:`, err);
+          throw err;
+        }
+      },
+      "reminder emails",
+    ).catch((err) => {
+      console.error("[processReminders] queue error:", err);
+    }).finally(() => {
+      reminderQueueRunning = false;
+    });
+
+    return { queued: staleRequests.length };
+  } catch (err) {
+    reminderQueueRunning = false;
+    throw err;
+  }
 }
 
 // 3. Mark requests as expired once past their ExpiresAt with no response

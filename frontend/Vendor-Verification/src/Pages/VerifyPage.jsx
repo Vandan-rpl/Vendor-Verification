@@ -19,6 +19,7 @@ export default function VerifyPage() {
 
   const [mode, setMode] = useState('view'); // view | edit
   const [form, setForm] = useState({ name: '', mobileNumber: '', email: '', address: '' });
+  const [originalForm, setOriginalForm] = useState({ name: '', mobileNumber: '', email: '', address: '' });
 
   const [submitState, setSubmitState] = useState('idle'); // idle | submitting | done | error
   const [submitMsg, setSubmitMsg] = useState('');
@@ -49,12 +50,14 @@ export default function VerifyPage() {
         }
 
         setVendor(data.vendor);
-        setForm({
+        const loadedForm = {
           name: data.vendor.name || '',
           mobileNumber: data.vendor.mobileNumber || '',
           email: data.vendor.email || '',
           address: data.vendor.address || ''
-        });
+        };
+        setForm(loadedForm);
+        setOriginalForm(loadedForm);
         setLoadState('ready');
       } catch (err) {
         setErrorMsg('Unable to load your details. Please try again later.');
@@ -64,6 +67,15 @@ export default function VerifyPage() {
 
     loadDetails();
   }, [token]);
+
+  function hasFormChanges() {
+    return (
+      form.name.trim() !== originalForm.name.trim() ||
+      form.mobileNumber.trim() !== originalForm.mobileNumber.trim() ||
+      form.email.trim() !== originalForm.email.trim() ||
+      form.address.trim() !== originalForm.address.trim()
+    );
+  }
 
   function getMissingRequiredSlots() {
     return DOCUMENT_SLOTS.filter((slot) => slot.required && !slotFiles[slot.type]);
@@ -109,11 +121,13 @@ export default function VerifyPage() {
   async function handleUpdateSubmit(e) {
     e.preventDefault();
 
-    const missing = getMissingRequiredSlots();
-    if (missing.length) {
-      setSubmitState('error');
-      setSubmitMsg(`Please attach: ${missing.map((s) => s.label).join(', ')} before submitting.`);
-      return;
+    if (hasFormChanges()) {
+      const missing = getMissingRequiredSlots();
+      if (missing.length) {
+        setSubmitState('error');
+        setSubmitMsg(`Please attach: ${missing.map((s) => s.label).join(', ')} before submitting.`);
+        return;
+      }
     }
 
     setSubmitState('submitting');
@@ -399,7 +413,7 @@ export default function VerifyPage() {
             />
           </div>
 
-          {renderDocumentSection()}
+          {hasFormChanges() && renderDocumentSection()}
 
           {submitState === 'error' && (
             <div className="rounded-lg bg-rose-50 p-3 text-xs text-rose-600">
