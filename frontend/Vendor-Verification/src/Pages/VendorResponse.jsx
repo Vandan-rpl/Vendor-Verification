@@ -28,8 +28,12 @@ function StatusBadge({ status }) {
 }
 
 function formatDate(value) {
-  if (!value) return '—';
-  return new Date(value).toLocaleString();
+   if (!value) return "—";
+
+  const [date, time] = value.replace("Z", "").split("T");
+  const [year, month, day] = date.split("-");
+
+  return `${day}/${month}/${year} ${time.split(".")[0]}`;
 }
 
 function formatBytes(bytes) {
