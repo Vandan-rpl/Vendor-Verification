@@ -21,10 +21,18 @@ export const getUploadedVendors = async (batchId) => {
   return response.data;
 };
 
-export const startVerificationEmails = async () => {
+export const getUploadBatches = async () => {
+  const response = await api.get("/api/getUploadBatches", {
+    withCredentials: true,
+  });
+
+  return response.data;
+};
+
+export const startVerificationEmails = async (batchId) => {
   const response = await api.post(
     "/api/verification/start",
-    {},
+    { batchId },
     {
       withCredentials: true,
       headers: {
@@ -32,6 +40,17 @@ export const startVerificationEmails = async () => {
       },
     }
   );
+
+  return response.data;
+};
+
+export const deleteVendorBatch = async (batchId) => {
+  const response = await api.delete(`/api/deleteVendorBatch/${batchId}`, {
+    withCredentials: true,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
 
   return response.data;
 };

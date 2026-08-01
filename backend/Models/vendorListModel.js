@@ -101,4 +101,101 @@ const getVendors = async ({ status, batchId, search, page, limit }) => {
   };
 };
 
-module.exports = { getVendors };
+const getUploadBatches = async () => {
+  await poolConnect;
+
+  const result = await new sql.Request(pool)
+    .query(`
+      SELECT
+        BatchId,
+        FileName,
+        TotalRows,
+        SuccessRows,
+        FailedRows,
+        UploadedAt
+      FROM ExcelUpload
+      ORDER BY UploadedAt DESC
+    `);
+
+  return result.recordset;
+};
+
+const deleteBatch = async (batchId) => {
+  await poolConnect;
+
+  const checkResult = await new sql.Request(pool)
+    .input("BatchId", sql.Int, batchId)
+    .query(`SELECT COUNT(*) AS VendorCount FROM Vendor WHERE BatchId = @BatchId`);
+
+  const vendorCount = checkResult.recordset[0].VendorCount;
+
+  if (vendorCount === 0) {
+    const err = new Error(`No vendor batch found with BatchId: ${batchId}`);
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    await new sql.Request(transaction)
+      .input("BatchId", sql.Int, batchId)
+      .query(`
+        DELETE vd
+        FROM VendorDocuments vd
+        INNER JOIN VendorVerificationResponse vvr ON vvr.Id = vd.ResponseId
+        INNER JOIN VerificationRequests vr ON vr.RequestId = vvr.RequestId
+        INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
+        INNER JOIN Vendor v ON v.VendorId = ve.VendorId
+        WHERE v.BatchId = @BatchId
+      `);
+
+    await new sql.Request(transaction)
+      .input("BatchId", sql.Int, batchId)
+      .query(`
+        DELETE vvr
+        FROM VendorVerificationResponse vvr
+        INNER JOIN VerificationRequests vr ON vr.RequestId = vvr.RequestId
+        INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
+        INNER JOIN Vendor v ON v.VendorId = ve.VendorId
+        WHERE v.BatchId = @BatchId
+      `);
+
+    await new sql.Request(transaction)
+      .input("BatchId", sql.Int, batchId)
+      .query(`
+        DELETE vr
+        FROM VerificationRequests vr
+        INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
+        INNER JOIN Vendor v ON v.VendorId = ve.VendorId
+        WHERE v.BatchId = @BatchId
+      `);
+
+    await new sql.Request(transaction)
+      .input("BatchId", sql.Int, batchId)
+      .query(`
+        DELETE ve
+        FROM VendorEmail ve
+        INNER JOIN Vendor v ON v.VendorId = ve.VendorId
+        WHERE v.BatchId = @BatchId
+      `);
+
+    await new sql.Request(transaction)
+      .input("BatchId", sql.Int, batchId)
+      .query(`DELETE FROM Vendor WHERE BatchId = @BatchId`);
+
+    await new sql.Request(transaction)
+      .input("BatchId", sql.Int, batchId)
+      .query(`DELETE FROM ExcelUpload WHERE BatchId = @BatchId`);
+
+    await transaction.commit();
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+
+  return { deletedCount: vendorCount };
+};
+
+module.exports = { getVendors, getUploadBatches, deleteBatch };

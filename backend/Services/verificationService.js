@@ -19,7 +19,7 @@ let reminderQueueRunning = false;
 // 1. Find vendors still 'pending', create their VerificationRequests rows
 //    immediately (so they're never picked up twice), then dispatch the
 //    actual emails in the background using the rate-limited queue.
-async function processNewVerifications() {
+async function processNewVerifications(batchId = null) {
   await poolConnect;
 
   if (verificationQueueRunning) {
@@ -32,8 +32,15 @@ async function processNewVerifications() {
   try {
     // STEP 1
     // Create VerificationRequests only for brand-new vendors
+    const pendingVendorRequest = pool.request();
+    let pendingBatchFilter = "";
 
-    const pendingVendorsResult = await pool.request().query(`
+    if (batchId) {
+      pendingBatchFilter = "AND v.BatchId = @BatchId";
+      pendingVendorRequest.input("BatchId", sql.Int, batchId);
+    }
+
+    const pendingVendorsResult = await pendingVendorRequest.query(`
       SELECT
           v.VendorId,
           v.VendorName,
@@ -44,6 +51,7 @@ async function processNewVerifications() {
           ON ve.VendorId = v.VendorId
           AND ve.is_primary = 1
       WHERE v.Status='pending'
+      ${pendingBatchFilter}
       AND NOT EXISTS
       (
           SELECT 1
@@ -92,13 +100,17 @@ async function processNewVerifications() {
     `);
 
     // STEP 3
-    // Load ALL queued requests
-    // Includes:
-    //   New requests
-    //   Failed retries
-    //   Requests left after server restart
+    // Load queued requests for the selected batch and any previously queued
+    // retries or pending requests not yet sent.
+    const queuedRequest = pool.request();
+    let queuedBatchFilter = "";
 
-    const queuedResult = await pool.request().query(`
+    if (batchId) {
+      queuedBatchFilter = "AND v.BatchId = @BatchId";
+      queuedRequest.input("BatchId", sql.Int, batchId);
+    }
+
+    const queuedResult = await queuedRequest.query(`
       SELECT
 
           vr.RequestId,
@@ -118,6 +130,7 @@ async function processNewVerifications() {
           ON ve.VendorId=v.VendorId
 
       WHERE vr.Status='queued'
+      ${queuedBatchFilter}
     `);
 
     const queuedRequests = queuedResult.recordset;

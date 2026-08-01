@@ -33,4 +33,32 @@ const listVendors = async (queryParams) => {
   };
 };
 
-module.exports = { listVendors };
+const listUploadBatches = async () => {
+  const batches = await vendorListModel.getUploadBatches();
+  return { batches };
+};
+
+/**
+ * Validates the batchId and deletes that entire uploaded batch. Used when a
+ * user uploaded the wrong excel, or the same excel twice, and wants to
+ * remove it before starting verification.
+ */
+const deleteVendorBatch = async (batchId) => {
+  const parsedBatchId = parseInt(batchId, 10);
+
+  if (!parsedBatchId || Number.isNaN(parsedBatchId)) {
+    const err = new Error("A valid batchId is required.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const result = await vendorListModel.deleteBatch(parsedBatchId);
+
+  return {
+    message: `Batch ${parsedBatchId} deleted successfully.`,
+    batchId: parsedBatchId,
+    deletedCount: result.deletedCount,
+  };
+};
+
+module.exports = { listVendors, listUploadBatches, deleteVendorBatch };
