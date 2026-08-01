@@ -25,6 +25,7 @@ const upload = multer({ dest: TEMP_UPLOAD_PATH });
 const documentUpload = upload.fields([
   { name: 'GST', maxCount: 1 },
   { name: 'Aadhar', maxCount: 1 },
+  { name: 'MSME', maxCount: 1 },
   { name: 'Invoice', maxCount: 1 }
 ]);
 

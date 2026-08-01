@@ -4,7 +4,8 @@ import { confirmVerification, getVerificationDetails, updateVerification } from 
 
 const DOCUMENT_SLOTS = [
   { type: 'GST', label: 'GST Certificate', required: true },
-  { type: 'Aadhar', label: 'Aadhar Card', required: true },
+  { type: 'Aadhar', label: 'Aadhar Card', required: false },
+  { type: 'MSME', label: 'MSME Certificate', required: false },
   { type: 'Invoice', label: 'Invoice', required: false }
 ];
 
@@ -24,7 +25,7 @@ export default function VerifyPage() {
   const [submitState, setSubmitState] = useState('idle'); // idle | submitting | done | error
   const [submitMsg, setSubmitMsg] = useState('');
 
-  const [slotFiles, setSlotFiles] = useState({ GST: null, Aadhar: null, Invoice: null });
+  const [slotFiles, setSlotFiles] = useState({ GST: null, Aadhar: null, Invoice: null, MSME: null });
 
   useEffect(() => {
     async function loadDetails() {

@@ -107,7 +107,7 @@ async function sendMail(to, { subject, html }) {
   }
 
   return transporter.sendMail({
-    from: `"Rubamin Pvt. Ltd."`,
+    from: `Rubamin Pvt. Ltd. <${process.env.FROM_USER}>`,
     to,
     subject,
     html,

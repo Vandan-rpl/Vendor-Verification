@@ -7,8 +7,8 @@ const BASE_UPLOAD_PATH = process.env.UPLOAD_BASE_PATH;
 
 // Document types the vendor can submit. GST and Aadhar are mandatory;
 // keep this in sync with DOCUMENT_SLOTS on the frontend.
-const REQUIRED_DOCUMENT_TYPES = ['GST', 'Aadhar'];
-const ALL_DOCUMENT_TYPES = ['GST', 'Aadhar', 'Invoice'];
+const REQUIRED_DOCUMENT_TYPES = ['GST'];
+const ALL_DOCUMENT_TYPES = ['GST', 'Aadhar', 'Invoice','MSME'];
 
 function sanitizeVendorCode(code) {
   if (code === undefined || code === null) {
