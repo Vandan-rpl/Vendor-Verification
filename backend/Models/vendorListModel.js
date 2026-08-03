@@ -1,4 +1,4 @@
-const { sql, pool, poolConnect } = require("../config/db");
+const { sql, pool, poolConnect } = require("../Config/db");
 
 /**
  * Returns paginated vendors with a computed status derived from their
