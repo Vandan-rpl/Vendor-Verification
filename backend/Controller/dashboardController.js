@@ -1,4 +1,4 @@
-const { getDashboardSummary } = require("../services/dashboardService");
+const { getDashboardSummary } = require("../Services/dashboardService");
 
 const getSummary = async (req, res) => {
   try {

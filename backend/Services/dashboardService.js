@@ -1,4 +1,4 @@
-const dashboardModel = require("../models/dashboardModel");
+const dashboardModel = require("../Models/dashboardModel");
 
 const getDashboardSummary = async () => {
   const counts = await dashboardModel.getSummaryCounts();

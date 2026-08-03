@@ -1,4 +1,4 @@
-const vendorDetailModel = require("../models/vendorDetailModel");
+const vendorDetailModel = require("../Models/vendorDetailModel");
 
 const getVendorVerificationDetail = async (vendorId) => {
   const vendor = await vendorDetailModel.getVendorById(vendorId);
