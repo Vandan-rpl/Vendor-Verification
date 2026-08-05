@@ -7,8 +7,9 @@ const postLogin = async (req,res) => {
 
         res.cookie('token',result.token,{
             httpOnly:true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite:'strict',
+            // secure: process.env.NODE_ENV === 'production',
+            secure: false,
+            sameSite: 'lax',
             maxAge: 8 * 60 * 60 * 1000 //8 hours
         })
 
