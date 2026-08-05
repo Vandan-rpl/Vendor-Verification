@@ -4,9 +4,14 @@ const errorHandler = (err, req, res, next) => {
   if (err instanceof multer.MulterError || err.name === "MulterError") {
     console.error("MulterError:", err);
 
+    const errorMessage =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? 'One or more files exceed the maximum upload size.'
+        : err.message;
+
     return res.status(400).json({
       success: false,
-      error: err.message,
+      error: errorMessage,
       code: err.code || null,
     });
   }

@@ -17,7 +17,8 @@ if (!fs.existsSync(TEMP_UPLOAD_PATH)) {
   fs.mkdirSync(TEMP_UPLOAD_PATH, { recursive: true });
 }
 
-const upload = multer({ dest: TEMP_UPLOAD_PATH });
+const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024; // 10 MB per file
+const upload = multer({ dest: TEMP_UPLOAD_PATH, limits: { fileSize: MAX_DOCUMENT_SIZE } });
 
 // Field name = document type. This makes req.files come back as
 // { GST: [file], Aadhar: [file], Invoice: [file] } instead of a flat

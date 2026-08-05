@@ -9,6 +9,9 @@ const DOCUMENT_SLOTS = [
   { type: 'Invoice', label: 'Invoice', required: false }
 ];
 
+const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_DOCUMENT_SIZE_MB = 10;
+
 // Route this at: /verify/:token
 export default function VerifyPage() {
   const { token } = useParams();
@@ -84,7 +87,25 @@ export default function VerifyPage() {
 
   function handleSlotFileChange(type, e) {
     const file = e.target.files && e.target.files[0];
-    setSlotFiles((prev) => ({ ...prev, [type]: file || null }));
+    const slotLabel = DOCUMENT_SLOTS.find((slot) => slot.type === type)?.label || type;
+
+    if (!file) {
+      setSlotFiles((prev) => ({ ...prev, [type]: null }));
+      return;
+    }
+
+    if (file.size > MAX_DOCUMENT_SIZE) {
+      setSubmitState('error');
+      setSubmitMsg(`${slotLabel} exceeds ${MAX_DOCUMENT_SIZE_MB} MB maximum size.`);
+      e.target.value = '';
+      return;
+    }
+
+    setSlotFiles((prev) => ({ ...prev, [type]: file }));
+    if (submitState === 'error') {
+      setSubmitState('idle');
+      setSubmitMsg('');
+    }
   }
 
   function handleRemoveSlotFile(type) {
@@ -155,7 +176,9 @@ export default function VerifyPage() {
           Supporting Documents
         </h3>
         <p className="mb-4 text-xs text-slate-500">
-          GST and Aadhar Card are required. Invoice is optional.
+          Please upload the required documents.
+          <br />
+          Maximum file size: {MAX_DOCUMENT_SIZE_MB} MB per document.
         </p>
 
         <div className="space-y-4">
