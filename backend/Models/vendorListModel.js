@@ -107,14 +107,24 @@ const getUploadBatches = async () => {
   const result = await new sql.Request(pool)
     .query(`
       SELECT
-        BatchId,
-        FileName,
-        TotalRows,
-        SuccessRows,
-        FailedRows,
-        UploadedAt
-      FROM ExcelUpload
-      ORDER BY UploadedAt DESC
+        e.BatchId,
+        e.FileName,
+        e.TotalRows,
+        e.SuccessRows,
+        e.FailedRows,
+        e.UploadedAt,
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM Vendor v
+            INNER JOIN VendorEmail ve ON ve.VendorId = v.VendorId
+            INNER JOIN VerificationRequests vr ON vr.EmailId = ve.EmailId
+            WHERE v.BatchId = e.BatchId
+          ) THEN 0
+          ELSE 1
+        END AS CanDelete
+      FROM ExcelUpload e
+      ORDER BY e.UploadedAt DESC
     `);
 
   return result.recordset;

@@ -45,7 +45,11 @@ function VendorUpload() {
       if (selectedId) {
         const selectedBatch = batches.find((b) => b.BatchId === selectedId);
         if (selectedBatch) {
-          await fetchBatchSummary(selectedId, selectedBatch.FileName);
+          await fetchBatchSummary(
+            selectedId,
+            selectedBatch.FileName,
+            selectedBatch.CanDelete
+          );
         }
       } else {
         setSelectedBatchId(null);
@@ -65,7 +69,7 @@ function VendorUpload() {
   // Pulls just the count (and optionally the rows) for a given batch from
   // the backend, so this screen never has to load the full vendor list
   // unless the user explicitly asks to preview it.
-  const fetchBatchSummary = async (batchId, fileName) => {
+  const fetchBatchSummary = async (batchId, fileName, canDelete = false) => {
     try {
       setSummaryLoading(true);
       const response = await getUploadedVendors(batchId);
@@ -77,6 +81,7 @@ function VendorUpload() {
         fileName: fileName || null,
         batchId: batchId ?? null,
         rowCount,
+        canDelete,
       });
       // Cache rows from this same call so opening Preview doesn't need a
       // second request (capped at 100 by getUploadedVendors already).
@@ -172,11 +177,15 @@ function VendorUpload() {
     }
   };
 
+  const hasSummary = !!fileSummary;
   const hasData = !!fileSummary && fileSummary.rowCount > 0;
+
+  const formatRowCount = (count) =>
+    count > 0 ? `${count} row${count !== 1 ? "s" : ""}` : "Completed";
 
   const handleSelectBatch = async (batch) => {
     setPreviewOpen(false);
-    await fetchBatchSummary(batch.BatchId, batch.FileName);
+    await fetchBatchSummary(batch.BatchId, batch.FileName, batch.CanDelete);
   };
 
   return (
@@ -262,7 +271,7 @@ function VendorUpload() {
                       {batch.FileName}
                     </p>
                     <p className="text-sm text-slate-500">
-                      {batch.TotalRows} row{batch.TotalRows !== 1 ? "s" : ""} • Success {batch.SuccessRows} • Failed {batch.FailedRows}
+                      {formatRowCount(batch.TotalRows)} • Success {batch.SuccessRows} • Failed {batch.FailedRows}
                     </p>
                     <p className="text-xs text-slate-400">
                       Uploaded {new Date(batch.UploadedAt).toLocaleString()}
@@ -287,16 +296,18 @@ function VendorUpload() {
                       {verifying ? "Starting..." : "Start Verification"}
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleDeleteBatch(batch.BatchId, batch.FileName, batch.TotalRows)
-                      }
-                      disabled={deleting}
-                      className="px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {deleting ? "Deleting..." : "Delete"}
-                    </button>
+                    {!!batch.CanDelete && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDeleteBatch(batch.BatchId, batch.FileName, batch.TotalRows)
+                        }
+                        disabled={deleting}
+                        className="px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {deleting ? "Deleting..." : "Delete"}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -316,7 +327,7 @@ function VendorUpload() {
             <div className="mt-5 text-sm text-slate-500">
               Loading summary...
             </div>
-          ) : hasData ? (
+          ) : hasSummary ? (
             <>
               <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-slate-200 bg-white p-4">
                 <div className="flex items-center gap-3">
@@ -326,11 +337,10 @@ function VendorUpload() {
 
                   <div>
                     <p className="font-medium text-slate-800">
-                      {fileSummary.fileName || "Uploaded file"}
+                      {!!fileSummary.fileName || "Uploaded file"}
                     </p>
                     <p className="text-sm text-slate-500">
-                      {fileSummary.rowCount} row
-                      {fileSummary.rowCount !== 1 ? "s" : ""} in this batch
+                      {formatRowCount(fileSummary.rowCount)} in this batch
                     </p>
                   </div>
                 </div>
@@ -344,14 +354,22 @@ function VendorUpload() {
                     {previewOpen ? "Hide Preview" : "Preview"}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleDeleteBatch}
-                    disabled={deleting}
-                    className="px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {deleting ? "Deleting..." : "Delete"}
-                  </button>
+                  {fileSummary?.canDelete && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleDeleteBatch(
+                          fileSummary.batchId,
+                          fileSummary.fileName,
+                          fileSummary.rowCount
+                        )
+                      }
+                      disabled={deleting}
+                      className="px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {deleting ? "Deleting..." : "Delete"}
+                    </button>
+                  )}
                 </div>
               </div>
 
