@@ -79,7 +79,9 @@ async function getResponseChanges(req, res) {
     const submittedResult = await pool.request()
       .input('RequestId', sql.Int, requestId)
       .query(`
-        SELECT TOP 1 Id, VendorName, ContactNumber, Email, Address, SubmittedAt
+        SELECT TOP 1
+          Id, VendorName, ContactNumber, Email, Address, SubmittedAt,
+          IsMSME, MSMECategory, MSMEType
         FROM VendorVerificationResponse
         WHERE RequestId = @RequestId
         ORDER BY SubmittedAt DESC
@@ -134,7 +136,10 @@ async function getSubmissions(req, res) {
         vvr.Email,
         vvr.Address,
         vvr.SubmittedAt,
-        vvr.ApprovalStatus
+        vvr.ApprovalStatus,
+        vvr.IsMSME,
+        vvr.MSMECategory,
+        vvr.MSMEType
       FROM VendorVerificationResponse vvr
       ORDER BY vvr.SubmittedAt DESC
     `);

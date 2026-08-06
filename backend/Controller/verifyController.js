@@ -5,10 +5,15 @@ const { v4: uuidv4 } = require('uuid');
 
 const BASE_UPLOAD_PATH = process.env.UPLOAD_BASE_PATH;
 
-// Document types the vendor can submit. GST and Aadhar are mandatory;
-// keep this in sync with DOCUMENT_SLOTS on the frontend.
-const REQUIRED_DOCUMENT_TYPES = ['GST'];
-const ALL_DOCUMENT_TYPES = ['GST', 'Aadhar', 'Invoice','MSME'];
+// Document types the vendor can submit. GST is mandatory only when the
+// vendor changes their address, and MSME becomes mandatory only when the
+// vendor checks "Registered as MSME" (see getMissingRequiredDocuments).
+// Keep this in sync with DOCUMENT_SLOTS on the frontend.
+const REQUIRED_DOCUMENT_TYPES = [];
+const ALL_DOCUMENT_TYPES = ['GST', 'Aadhar', 'Invoice', 'MSME'];
+
+const MSME_CATEGORIES = ['Micro', 'Small', 'Medium'];
+const MSME_TYPES = ['Trading', 'Manufacturing', 'Service'];
 
 function sanitizeVendorCode(code) {
   if (code === undefined || code === null) {
@@ -20,26 +25,67 @@ function sanitizeVendorCode(code) {
 // req.files here is the OBJECT shape produced by multer.fields(), e.g.
 // { GST: [file], Aadhar: [file], Invoice: [file] } — not the flat array
 // you get from multer.array(). Missing types simply won't be keys on it.
-function getMissingRequiredDocuments(filesByType) {
-  return REQUIRED_DOCUMENT_TYPES.filter(
+//
+// isMSME toggles whether the MSME slot is added to the required list on
+// top of the always-required types.
+function getMissingRequiredDocuments(filesByType, isMSME, addressChanged) {
+  const requiredTypes = [
+    ...(isMSME ? ['MSME'] : []),
+    ...(addressChanged ? ['GST'] : [])
+  ];
+
+  return requiredTypes.filter(
     (type) => !filesByType || !filesByType[type] || !filesByType[type][0]
   );
 }
 
-async function saveVendorVerificationResponse({ requestId, vendorId, vendorName, contactNumber, email, address }) {
-   const result = await pool.request()
+// Normalizes the isMSME value coming from multipart form-data (always a
+// string) or JSON (could be boolean) into a real boolean.
+function parseIsMSME(value) {
+  return value === true || value === 'true' || value === '1' || value === 1;
+}
+
+// Validates category/type only when isMSME is true. Returns an error
+// string, or null if valid.
+function validateMSMEFields(isMSME, msmeCategory, msmeType) {
+  if (!isMSME) return null;
+
+  if (!msmeCategory || !MSME_CATEGORIES.includes(msmeCategory)) {
+    return 'Please select a valid MSME category.';
+  }
+  if (!msmeType || !MSME_TYPES.includes(msmeType)) {
+    return 'Please select a valid MSME type.';
+  }
+  return null;
+}
+
+async function saveVendorVerificationResponse({
+  requestId,
+  vendorId,
+  vendorName,
+  contactNumber,
+  email,
+  address,
+  isMSME = false,
+  msmeCategory = null,
+  msmeType = null
+}) {
+  const result = await pool.request()
     .input('RequestId', sql.Int, requestId)
     .input('VendorId', sql.Int, vendorId)
     .input('VendorName', sql.NVarChar(200), vendorName)
     .input('ContactNumber', sql.NVarChar(20), contactNumber)
     .input('Email', sql.NVarChar(200), email)
     .input('Address', sql.NVarChar(500), address)
+    .input('IsMSME', sql.Bit, isMSME)
+    .input('MSMECategory', sql.NVarChar(20), isMSME ? msmeCategory : null)
+    .input('MSMEType', sql.NVarChar(20), isMSME ? msmeType : null)
     .query(`
       INSERT INTO VendorVerificationResponse
-        (RequestId, VendorId, VendorName, ContactNumber, Email, Address)
+        (RequestId, VendorId, VendorName, ContactNumber, Email, Address, IsMSME, MSMECategory, MSMEType)
       OUTPUT INSERTED.Id
       VALUES
-        (@RequestId, @VendorId, @VendorName, @ContactNumber, @Email, @Address)
+        (@RequestId, @VendorId, @VendorName, @ContactNumber, @Email, @Address, @IsMSME, @MSMECategory, @MSMEType)
     `);
 
   return result.recordset[0].Id;
@@ -176,8 +222,10 @@ async function getVerificationDetails(req, res) {
 
 // POST /api/verify/:token/confirm
 // Vendor says "all details are correct" — no data change, just marks confirmed.
-// Documents are NOT required here — GST/Aadhar are only mandatory on the
+// Documents are NOT required here — GST/Aadhar/MSME are only mandatory on the
 // update/edit path (submitUpdate), where the vendor is changing details.
+// MSME status is not applicable on this path since the vendor isn't asserting
+// or changing anything — IsMSME stays at its DB default (0).
 async function confirmVerification(req, res) {
   const { token } = req.params;
   try {
@@ -243,18 +291,21 @@ async function confirmVerification(req, res) {
 // POST /api/verify/:token/update
 // Vendor submits edited details — stored in VendorVerificationResponse for review,
 // does NOT touch the live Vendor table.
-// Requires GST and Aadhar files in the SAME multipart request (route uses multer.fields()).
+// GST is required only when the vendor changes their address, and MSME is
+// required only when the user checks the MSME box.
 async function submitUpdate(req, res) {
   const { token } = req.params;
-  const { name, mobileNumber, email, address } = req.body;
+  const { name, mobileNumber, email, address, isMSME, msmeCategory, msmeType } = req.body;
 
   if (!name || !mobileNumber || !email || !address) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
 
-  const missingDocs = getMissingRequiredDocuments(req.files);
-  if (missingDocs.length) {
-    return res.status(400).json({ error: `Please attach: ${missingDocs.join(', ')} before submitting.` });
+  const isMSMEBool = parseIsMSME(isMSME);
+
+  const msmeError = validateMSMEFields(isMSMEBool, msmeCategory, msmeType);
+  if (msmeError) {
+    return res.status(400).json({ error: msmeError });
   }
 
   try {
@@ -263,7 +314,14 @@ async function submitUpdate(req, res) {
     const check = await pool.request()
       .input('Token', sql.NVarChar(255), token)
       .query(`
-        SELECT vr.RequestId, vr.Status, vr.ExpiresAt, v.VendorCode, ve.VendorId
+        SELECT vr.RequestId, vr.Status, vr.ExpiresAt, v.VendorCode, ve.VendorId,
+               CONCAT(
+                 v.AddressLine1,
+                 CASE WHEN v.AddressLine2 IS NOT NULL AND v.AddressLine2 <> '' THEN CONCAT(', ', v.AddressLine2) ELSE '' END,
+                 CASE WHEN v.City IS NOT NULL AND v.City <> '' THEN CONCAT(', ', v.City) ELSE '' END,
+                 CASE WHEN v.State IS NOT NULL AND v.State <> '' THEN CONCAT(', ', v.State) ELSE '' END,
+                 CASE WHEN v.Pincode IS NOT NULL AND v.Pincode <> '' THEN CONCAT(' - ', v.Pincode) ELSE '' END
+               ) AS Address
         FROM VerificationRequests vr
         INNER JOIN VendorEmail ve ON ve.EmailId = vr.EmailId
         INNER JOIN Vendor v ON v.VendorId = ve.VendorId
@@ -278,13 +336,25 @@ async function submitUpdate(req, res) {
       return res.status(400).json({ error: 'This link is no longer active.' });
     }
 
+    const currentAddress = (record.Address || '').trim();
+    const submittedAddress = (address || '').trim();
+    const addressChanged = currentAddress !== submittedAddress;
+
+    const missingDocs = getMissingRequiredDocuments(req.files, isMSMEBool, addressChanged);
+    if (missingDocs.length) {
+      return res.status(400).json({ error: `Please attach: ${missingDocs.join(', ')} before submitting.` });
+    }
+
     const responseId = await saveVendorVerificationResponse({
       requestId: record.RequestId,
       vendorId: record.VendorId,
       vendorName: name,
       contactNumber: mobileNumber,
       email,
-      address
+      address,
+      isMSME: isMSMEBool,
+      msmeCategory,
+      msmeType
     });
 
     await saveVendorDocuments({

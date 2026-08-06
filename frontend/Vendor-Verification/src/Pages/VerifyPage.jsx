@@ -3,14 +3,27 @@ import { useParams } from 'react-router-dom';
 import { confirmVerification, getVerificationDetails, updateVerification } from '../Services/verifyService';
 
 const DOCUMENT_SLOTS = [
-  { type: 'GST', label: 'GST Certificate', required: true },
+  { type: 'GST', label: 'GST Certificate', required: false },
   { type: 'Aadhar', label: 'Aadhar Card', required: false },
   { type: 'MSME', label: 'MSME Certificate', required: false },
   { type: 'Invoice', label: 'Invoice', required: false }
 ];
 
+const MSME_CATEGORIES = ['Micro', 'Small', 'Medium'];
+const MSME_TYPES = ['Trading', 'Manufacturing', 'Service'];
+
 const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_DOCUMENT_SIZE_MB = 10;
+
+const EMPTY_FORM = {
+  name: '', 
+  mobileNumber: '',
+  email: '',
+  address: '',
+  isMSME: false,
+  msmeCategory: '',
+  msmeType: ''
+};
 
 // Route this at: /verify/:token
 export default function VerifyPage() {
@@ -22,8 +35,8 @@ export default function VerifyPage() {
   const [alreadyStatus, setAlreadyStatus] = useState('');
 
   const [mode, setMode] = useState('view'); // view | edit
-  const [form, setForm] = useState({ name: '', mobileNumber: '', email: '', address: '' });
-  const [originalForm, setOriginalForm] = useState({ name: '', mobileNumber: '', email: '', address: '' });
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [originalForm, setOriginalForm] = useState(EMPTY_FORM);
 
   const [submitState, setSubmitState] = useState('idle'); // idle | submitting | done | error
   const [submitMsg, setSubmitMsg] = useState('');
@@ -58,7 +71,13 @@ export default function VerifyPage() {
           name: data.vendor.name || '',
           mobileNumber: data.vendor.mobileNumber || '',
           email: data.vendor.email || '',
-          address: data.vendor.address || ''
+          address: data.vendor.address || '',
+          // No isMSME/msmeCategory/msmeType here — MSME status isn't stored
+          // on the Vendor table, only captured per-submission when the
+          // vendor edits their details (see VendorVerificationResponse).
+          isMSME: false,
+          msmeCategory: '',
+          msmeType: ''
         };
         setForm(loadedForm);
         setOriginalForm(loadedForm);
@@ -77,12 +96,44 @@ export default function VerifyPage() {
       form.name.trim() !== originalForm.name.trim() ||
       form.mobileNumber.trim() !== originalForm.mobileNumber.trim() ||
       form.email.trim() !== originalForm.email.trim() ||
-      form.address.trim() !== originalForm.address.trim()
+      form.address.trim() !== originalForm.address.trim() ||
+      form.isMSME !== originalForm.isMSME ||
+      form.msmeCategory !== originalForm.msmeCategory ||
+      form.msmeType !== originalForm.msmeType
     );
   }
 
+  function hasAddressChanged() {
+    return form.address.trim() !== originalForm.address.trim();
+  }
+
+  // GST is required only when address changes. MSME is only required when
+  // the user checks the MSME box.
+  function isSlotRequired(slot) {
+    if (slot.type === 'GST') {
+      return hasAddressChanged();
+    }
+    return slot.required || (slot.type === 'MSME' && form.isMSME);
+  }
+
   function getMissingRequiredSlots() {
-    return DOCUMENT_SLOTS.filter((slot) => slot.required && !slotFiles[slot.type]);
+    return DOCUMENT_SLOTS.filter((slot) => isSlotRequired(slot) && !slotFiles[slot.type]);
+  }
+
+  function handleMSMECheckboxChange(checked) {
+    setForm((prev) => ({
+      ...prev,
+      isMSME: checked,
+      // Clear category/type if the vendor unchecks the box, so a stale
+      // selection can't be silently submitted.
+      ...(checked ? {} : { msmeCategory: '', msmeType: '' })
+    }));
+
+    // If unchecking, also drop any MSME file already selected and clear
+    // any error message that was specifically about the MSME certificate.
+    if (!checked) {
+      setSlotFiles((prev) => ({ ...prev, MSME: null }));
+    }
   }
 
   function handleSlotFileChange(type, e) {
@@ -144,6 +195,12 @@ export default function VerifyPage() {
     e.preventDefault();
 
     if (hasFormChanges()) {
+      if (form.isMSME && (!form.msmeCategory || !form.msmeType)) {
+        setSubmitState('error');
+        setSubmitMsg('Please select MSME category and type.');
+        return;
+      }
+
       const missing = getMissingRequiredSlots();
       if (missing.length) {
         setSubmitState('error');
@@ -169,6 +226,64 @@ export default function VerifyPage() {
     }
   }
 
+  function renderMSMESection() {
+    return (
+      <div className="rounded-lg border border-slate-200 p-4">
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+          <input
+            type="checkbox"
+            checked={form.isMSME}
+            onChange={(e) => handleMSMECheckboxChange(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+          />
+          Registered as MSME
+        </label>
+
+        {form.isMSME && (
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                MSME Category
+              </label>
+              <select
+                value={form.msmeCategory}
+                onChange={(e) => setForm({ ...form, msmeCategory: e.target.value })}
+                required
+                className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">Select category</option>
+                {MSME_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                MSME Type
+              </label>
+              <select
+                value={form.msmeType}
+                onChange={(e) => setForm({ ...form, msmeType: e.target.value })}
+                required
+                className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">Select type</option>
+                {MSME_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderDocumentSection() {
     return (
       <div className="my-6 border-y border-slate-200 py-5">
@@ -184,11 +299,12 @@ export default function VerifyPage() {
         <div className="space-y-4">
           {DOCUMENT_SLOTS.map((slot) => {
             const selectedFile = slotFiles[slot.type];
+            const required = isSlotRequired(slot);
             return (
               <div key={slot.type} className="flex flex-col">
                 <label className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-600">
                   {slot.label}
-                  {slot.required && <span className="ml-0.5 text-rose-500">*</span>}
+                  {required && <span className="ml-0.5 text-rose-500">*</span>}
                 </label>
 
                 {selectedFile ? (
@@ -436,6 +552,8 @@ export default function VerifyPage() {
               className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
+
+          {renderMSMESection()}
 
           {hasFormChanges() && renderDocumentSection()}
 

@@ -50,6 +50,18 @@ function formatBytes(bytes) {
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+function formatMSME(submitted) {
+  if (!submitted) return '—';
+  // IsMSME comes back from mssql as 0/1 (or boolean depending on driver
+  // config) — normalize before checking.
+  const isMSME = submitted.IsMSME === true || submitted.IsMSME === 1;
+  if (!isMSME) return 'No';
+
+  const category = submitted.MSMECategory || '—';
+  const type = submitted.MSMEType || '—';
+  return `Yes — ${category} / ${type}`;
+}
+
 function buildDocumentDownloadUrl(filePath) {
   if (!filePath) return null;
 
@@ -270,6 +282,14 @@ function ChangesModal({ modal, loading, onClose }) {
                 <ChangeRow label="Mobile" original={modal.original.MobileNumber} submitted={modal.submitted.ContactNumber} />
                 <ChangeRow label="Email" original={modal.original.Email} submitted={modal.submitted.Email} />
                 <ChangeRow label="Address" original={modal.original.Address} submitted={modal.submitted.Address} />
+                {/* No "Original" column value for MSME — MSME status isn't
+                    stored on the live Vendor record, only captured at
+                    submission time, so there's nothing to diff it against. */}
+                <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '0.4rem', fontWeight: 600 }}>MSME</td>
+                  <td style={{ padding: '0.4rem', color: '#94a3b8' }}>—</td>
+                  <td style={{ padding: '0.4rem' }}>{formatMSME(modal.submitted)}</td>
+                </tr>
               </tbody>
             </table>
 
